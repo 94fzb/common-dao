@@ -5,6 +5,7 @@
 ### DAO
 
 - support webapi (wrapper query runner)
+- basic page query
 
 ### tips
 
