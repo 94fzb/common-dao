@@ -12,18 +12,22 @@ import java.util.Map.Entry;
 public class DAO implements IDAO {
 
     public static final String[] ALL = "*".split(" ");
-    private static DataSourceWrapper dataSource;
+    private static DataSourceWrapper defaultDataSource;
     protected String tableName;
     protected String pk = "id";
     protected QueryRunner queryRunner;
     private Map<String, Object> attrs = new HashMap<>();
 
     public DAO() {
-        if (Objects.nonNull(dataSource)) {
-            if (dataSource.isWebApi()) {
-                queryRunner = new WebApiQueryRunner(dataSource.getDataSourceProperties(), dataSource.isDev());
+        this(defaultDataSource);
+    }
+
+    public DAO(DataSourceWrapper ds) {
+        if (Objects.nonNull(ds)) {
+            if (ds.isWebApi()) {
+                queryRunner = new WebApiQueryRunner(ds.getDataSourceProperties(), ds.isDev());
             } else {
-                queryRunner = new CustomQueryRunner(dataSource, true);
+                queryRunner = new CustomQueryRunner(ds, true);
             }
         } else {
             queryRunner = new CustomQueryRunner(null, true);
@@ -32,12 +36,11 @@ public class DAO implements IDAO {
 
     public static void main(String[] args) throws SQLException {
         DAO dao = new DAO();
-        //log.info(dao.queryFirstObj("select count(1) from SYS_USER where name!=?", "null"));
-        //log.info(dao.queryList("id,name"));
+        System.out.println(dao.queryFirstObj("select count(1) from SYS_USER where name!=?", "null"));
     }
 
     public static void setDs(DataSourceWrapper ds) {
-        dataSource = ds;
+        defaultDataSource = ds;
     }
 
     public Map<String, Object> getAttrs() {

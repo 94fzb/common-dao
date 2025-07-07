@@ -13,4 +13,6 @@ public interface DataSourceWrapper extends AutoCloseable, DataSource {
     void testConnection() throws SQLException;
 
     boolean isDev();
+
+    String getDbInfo();
 }

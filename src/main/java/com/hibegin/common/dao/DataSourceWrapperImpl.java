@@ -7,6 +7,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class DataSourceWrapperImpl extends HikariDataSource implements DataSourceWrapper {
@@ -43,5 +44,18 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
     @Override
     public boolean isDev() {
         return dev;
+    }
+
+    @Override
+    public String getDbInfo() {
+        try {
+            if (isWebApi()) {
+                return "webapi/1.0.2";
+            }
+            return (String) new DAO(this).queryFirstObj("select version()");
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "DB connect error ", e);
+        }
+        return "Unknown";
     }
 }
