@@ -5,3 +5,7 @@
 ### DAO
 
 - support webapi (wrapper query runner)
+
+### tips
+
+- required java11+
