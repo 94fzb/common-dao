@@ -3,7 +3,7 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <groupId>com.hibegin</groupId>
-    <version>1.0.5</version>
+    <version>1.0.6-SNAPSHOT</version>
     <modelVersion>4.0.0</modelVersion>
     <artifactId>common-dao</artifactId>
 
@@ -28,7 +28,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <sws.version>4.0.73</sws.version>
         <disableJava21>false</disableJava21>
-        <project.build.outputTimestamp>2025-07-09T03:55:20Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2025-07-09T03:55:38Z</project.build.outputTimestamp>
         <gpg.passphrase/>
     </properties>
 
