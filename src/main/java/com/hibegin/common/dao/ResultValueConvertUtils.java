@@ -16,7 +16,7 @@ public class ResultValueConvertUtils {
             return null;
         }
         if (date instanceof String) {
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss Z", Locale.ENGLISH);
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss" + (((String) date).contains("+") ? " Z" : ""), Locale.ENGLISH);
             SimpleDateFormat realSdf = new SimpleDateFormat(format, Locale.ENGLISH);
             return realSdf.format(new Date(LocalDateTime.from(formatter.parse((String) date)).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()));
         } else if (date instanceof LocalDateTime) {

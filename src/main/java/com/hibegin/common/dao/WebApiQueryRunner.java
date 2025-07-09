@@ -17,10 +17,11 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class WebApiQueryRunner extends QueryRunner {
+public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo {
 
     private static final Logger LOGGER = LoggerUtil.getLogger(WebApiQueryRunner.class);
     private final Properties dbProperties;
@@ -28,6 +29,7 @@ public class WebApiQueryRunner extends QueryRunner {
     private final Gson gson = new Gson();
     private final boolean dev;
     private final URI webApiUrl;
+    private final AtomicLong connectSize = new AtomicLong(0);
 
     public WebApiQueryRunner(Properties dataSourceProperties, boolean dev) {
         this.dbProperties = dataSourceProperties;
@@ -63,6 +65,15 @@ public class WebApiQueryRunner extends QueryRunner {
                 .build();
     }
 
+    private HttpResponse<String> doRequest(String sql, Object... params) throws IOException, InterruptedException {
+        connectSize.incrementAndGet();
+        try {
+            return httpClient.send(buildHttpRequest(sql, params), HttpResponse.BodyHandlers.ofString());
+        } finally {
+            connectSize.decrementAndGet();
+        }
+    }
+
     public <T> T query(final String sql, final ResultSetHandler<T> rsh) throws SQLException {
         return webApiQuery(sql, rsh, (Object[]) null);
     }
@@ -74,7 +85,7 @@ public class WebApiQueryRunner extends QueryRunner {
     private <T> T webApiQuery(String sql, ResultSetHandler<T> rsh, Object... params) throws SQLException {
         long start = System.currentTimeMillis();
         try {
-            HttpResponse<String> send = httpClient.send(buildHttpRequest(sql, params), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> send = doRequest(sql, params);
             if (send.statusCode() == 200) {
                 Map<String, Object> map = gson.fromJson(send.body(), Map.class);
                 if (Objects.equals(map.get("success"), true)) {
@@ -135,7 +146,7 @@ public class WebApiQueryRunner extends QueryRunner {
     private int webApiUpdate(String sql, Object... params) throws SQLException {
         long start = System.currentTimeMillis();
         try {
-            HttpResponse<String> send = httpClient.send(buildHttpRequest(sql, params), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> send = doRequest(sql, params);
             if (send.statusCode() == 200) {
                 Map<String, Object> map = gson.fromJson(send.body(), Map.class);
                 if (Objects.equals(map.get("success"), true)) {
@@ -159,5 +170,15 @@ public class WebApiQueryRunner extends QueryRunner {
 
     public void testConnection() throws SQLException {
         query("select 1 = 1", new MapHandler());
+    }
+
+    @Override
+    public Integer getConnectActiveSize() {
+        return connectSize.intValue();
+    }
+
+    @Override
+    public Integer getConnectTotalSize() {
+        return connectSize.intValue();
     }
 }

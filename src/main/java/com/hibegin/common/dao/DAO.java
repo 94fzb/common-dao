@@ -6,7 +6,10 @@ import org.apache.commons.dbutils.handlers.MapListHandler;
 import org.apache.commons.dbutils.handlers.ScalarHandler;
 
 import java.sql.SQLException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 
 public class DAO implements IDAO {
@@ -23,15 +26,7 @@ public class DAO implements IDAO {
     }
 
     public DAO(DataSourceWrapper ds) {
-        if (Objects.nonNull(ds)) {
-            if (ds.isWebApi()) {
-                queryRunner = new WebApiQueryRunner(ds.getDataSourceProperties(), ds.isDev());
-            } else {
-                queryRunner = new CustomQueryRunner(ds, true);
-            }
-        } else {
-            queryRunner = new CustomQueryRunner(null, true);
-        }
+        this.queryRunner = ds.getQueryRunner();
     }
 
     public static void main(String[] args) throws SQLException {

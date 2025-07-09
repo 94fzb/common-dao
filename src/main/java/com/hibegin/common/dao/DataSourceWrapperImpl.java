@@ -2,6 +2,8 @@ package com.hibegin.common.dao;
 
 import com.hibegin.common.util.LoggerUtil;
 import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
+import org.apache.commons.dbutils.QueryRunner;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -14,10 +16,16 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
 
     private static final Logger LOGGER = LoggerUtil.getLogger(DataSourceWrapperImpl.class);
     private final boolean dev;
+    private final QueryRunner queryRunner;
 
     public DataSourceWrapperImpl(Properties properties, boolean dev) {
         setDataSourceProperties(properties);
         this.dev = dev;
+        if (this.isWebApi()) {
+            queryRunner = new WebApiQueryRunner(this.getDataSourceProperties(), this.isDev());
+        } else {
+            queryRunner = new CustomQueryRunner(this, true);
+        }
     }
 
     @Override
@@ -57,5 +65,22 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
             LOGGER.log(Level.SEVERE, "DB connect error ", e);
         }
         return "Unknown";
+    }
+
+    @Override
+    public QueryRunner getQueryRunner() {
+        return queryRunner;
+    }
+
+    @Override
+    public DatabaseConnectPoolInfo getDatabaseConnectPoolInfo() {
+        if (queryRunner instanceof GetConnectPoolInfo) {
+            return new DatabaseConnectPoolInfo(((GetConnectPoolInfo) queryRunner).getConnectActiveSize(), ((GetConnectPoolInfo) queryRunner).getConnectTotalSize());
+        }
+        HikariPoolMXBean hikariPoolMXBean = this.getHikariPoolMXBean();
+        if (Objects.isNull(hikariPoolMXBean)) {
+            return new DatabaseConnectPoolInfo(0, 0);
+        }
+        return new DatabaseConnectPoolInfo(hikariPoolMXBean.getActiveConnections(), hikariPoolMXBean.getTotalConnections());
     }
 }
