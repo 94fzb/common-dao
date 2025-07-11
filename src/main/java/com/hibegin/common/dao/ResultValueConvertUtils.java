@@ -32,8 +32,8 @@ public class ResultValueConvertUtils {
             return true;
         } else if (Objects.equals(value + "", "1.0")) {
             return true;
-        } else if (Objects.equals(value + "", 0 + "")) {
-            return false;
+        } else if (Objects.equals(value + "", "on")) {
+            return true;
         }
         return Objects.equals(value, true);
     }
