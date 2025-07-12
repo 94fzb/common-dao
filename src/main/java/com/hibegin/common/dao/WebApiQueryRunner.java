@@ -18,6 +18,7 @@ import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -31,6 +32,9 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
     private final boolean dev;
     private final URI webApiUrl;
     private final AtomicLong connectSize = new AtomicLong(0);
+    private final Semaphore semaphore;
+    private final int maximumPoolSize;
+
 
     public WebApiQueryRunner(Properties dataSourceProperties, boolean dev, int maximumPoolSize) {
         this.dbProperties = dataSourceProperties;
@@ -38,6 +42,8 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
         URI uri = URI.create(dbProperties.getProperty("jdbcUrl").replaceAll("jdbc:", ""));
         boolean http2 = ObjectUtil.requireNonNullElse(uri.getQuery(), "").contains("supportHttp2=true");
         this.webApiUrl = URI.create("https://" + uri.getHost() + ":" + uri.getPort() + uri.getPath());
+        this.semaphore = new Semaphore(maximumPoolSize);
+        this.maximumPoolSize = maximumPoolSize;
         this.httpClient = HttpClient.newBuilder().executor(Executors.newFixedThreadPool(maximumPoolSize)).version(http2 ? HttpClient.Version.HTTP_2 : HttpClient.Version.HTTP_1_1).build();
     }
 
@@ -67,11 +73,13 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
     }
 
     private HttpResponse<String> doRequest(String sql, Object... params) throws IOException, InterruptedException {
+        semaphore.acquire();
         connectSize.incrementAndGet();
         try {
             return httpClient.send(buildHttpRequest(sql, params), HttpResponse.BodyHandlers.ofString());
         } finally {
             connectSize.decrementAndGet();
+            semaphore.release();
         }
     }
 
@@ -180,6 +188,9 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
 
     @Override
     public Integer getConnectTotalSize() {
-        return connectSize.intValue();
+        if (connectSize.intValue() <= 0) {
+            return 0;
+        }
+        return maximumPoolSize;
     }
 }
