@@ -25,6 +25,8 @@
 
     <properties>
         <java.version>11</java.version>
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <sws.version>4.0.73</sws.version>
         <disableJava21>false</disableJava21>
