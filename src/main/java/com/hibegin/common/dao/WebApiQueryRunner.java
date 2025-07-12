@@ -17,6 +17,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -31,13 +32,13 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
     private final URI webApiUrl;
     private final AtomicLong connectSize = new AtomicLong(0);
 
-    public WebApiQueryRunner(Properties dataSourceProperties, boolean dev) {
+    public WebApiQueryRunner(Properties dataSourceProperties, boolean dev, int maximumPoolSize) {
         this.dbProperties = dataSourceProperties;
         this.dev = dev;
         URI uri = URI.create(dbProperties.getProperty("jdbcUrl").replaceAll("jdbc:", ""));
         boolean http2 = ObjectUtil.requireNonNullElse(uri.getQuery(), "").contains("supportHttp2=true");
         this.webApiUrl = URI.create("https://" + uri.getHost() + ":" + uri.getPort() + uri.getPath());
-        this.httpClient = HttpClient.newBuilder().version(http2 ? HttpClient.Version.HTTP_2 : HttpClient.Version.HTTP_1_1).build();
+        this.httpClient = HttpClient.newBuilder().executor(Executors.newFixedThreadPool(maximumPoolSize)).version(http2 ? HttpClient.Version.HTTP_2 : HttpClient.Version.HTTP_1_1).build();
     }
 
     private HttpRequest buildHttpRequest(String sql, Object... params) {

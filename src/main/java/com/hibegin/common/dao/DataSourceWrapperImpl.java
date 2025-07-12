@@ -22,7 +22,7 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
         setDataSourceProperties(properties);
         this.dev = dev;
         if (this.isWebApi()) {
-            queryRunner = new WebApiQueryRunner(this.getDataSourceProperties(), this.isDev());
+            queryRunner = new WebApiQueryRunner(this.getDataSourceProperties(), this.isDev(), Math.min(getMaximumPoolSize(), 1));
         } else {
             queryRunner = new CustomQueryRunner(this, true);
         }
@@ -40,7 +40,7 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
     @Override
     public void testConnection() throws SQLException {
         if (isWebApi()) {
-            new WebApiQueryRunner(getDataSourceProperties(), dev).testConnection();
+            new WebApiQueryRunner(getDataSourceProperties(), dev, getMaximumPoolSize()).testConnection();
             LOGGER.info("Webapi test connect success");
             return;
         }
@@ -58,7 +58,7 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
     public String getDbInfo() {
         try {
             if (isWebApi()) {
-                return "webapi/1.0.6";
+                return "webapi/1.0.8";
             }
             return (String) new DAO(this).queryFirstObj("select version()");
         } catch (Exception e) {
