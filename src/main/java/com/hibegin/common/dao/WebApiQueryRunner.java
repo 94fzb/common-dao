@@ -98,7 +98,7 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
             if (send.statusCode() == 200) {
                 Map<String, Object> map = gson.fromJson(send.body(), Map.class);
                 if (Objects.equals(map.get("success"), true)) {
-                    List results = (List) map.get("results");
+                    List<?> results = (List<?>) map.get("results");
                     if (rsh instanceof ScalarHandler) {
                         if (results.isEmpty()) {
                             return null;
@@ -146,6 +146,16 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
     @Override
     public int update(Connection conn, String sql, Object param) throws SQLException {
         return webApiUpdate(sql, param);
+    }
+
+    @Override
+    public int update(String sql) throws SQLException {
+        return this.webApiUpdate(sql, (Object[]) null);
+    }
+
+    @Override
+    public int update(String sql, Object param) throws SQLException {
+        return this.webApiUpdate(sql, param);
     }
 
     public int update(final String sql, final Object... params) throws SQLException {
