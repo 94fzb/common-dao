@@ -1,5 +1,6 @@
 package com.hibegin.common.dao;
 
+import com.google.gson.Gson;
 import com.hibegin.common.dao.dto.*;
 
 import java.sql.SQLException;
@@ -15,8 +16,22 @@ import java.util.stream.Collectors;
 
 public class BasePageableDAO extends DAO {
 
-    public PageData<Map<String, Object>> queryPageData(String sql, PageRequest pageRequest, Object[] obj) {
-        PageData<Map<String, Object>> data = new PageData<>();
+    private static <T> T convert(Object obj, Class<T> clazz) {
+        String jsonStr = new Gson().toJson(obj);
+        return new Gson().fromJson(jsonStr, clazz);
+    }
+
+    private static <T> List<T> doConvertList(List<Map<String, Object>> results, Class<T> clazz) {
+        return results.stream().map(e -> {
+            if (clazz.isAssignableFrom(Map.class)) {
+                return (T) e;
+            }
+            return convert(e, clazz);
+        }).collect(Collectors.toList());
+    }
+
+    public <T> PageData<T> queryPageData(String sql, PageRequest pageRequest, Object[] obj, Class<T> clazz) {
+        PageData<T> data = new PageData<>();
         ExecutorService executors = Executors.newFixedThreadPool(2);
         try {
             List<CompletableFuture<Void>> tasks = new ArrayList<>();
@@ -32,9 +47,9 @@ public class BasePageableDAO extends DAO {
                     if (pageRequest instanceof PageRequestImpl) {
                         params.add(pageRequest.getOffset());
                         params.add(pageRequest.getSize());
-                        data.setRows(this.queryListWithParams(sql + " limit  ?,?", params.toArray()));
+                        data.setRows(doConvertList(this.queryListWithParams(sql + " limit  ?,?", params.toArray()), clazz));
                     } else {
-                        data.setRows(this.queryListWithParams(sql, params.toArray()));
+                        data.setRows(doConvertList(this.queryListWithParams(sql, params.toArray()), clazz));
                     }
                 } catch (SQLException e) {
                     throw new RuntimeException(e);
@@ -67,5 +82,9 @@ public class BasePageableDAO extends DAO {
             data.setSize(pageRequest.getSize());
         }
         return data;
+    }
+
+    public PageData<Map<String, Object>> queryPageData(String sql, PageRequest pageRequest, Object[] obj) {
+        return (PageData) queryPageData(sql, pageRequest, obj, Map.class);
     }
 }
