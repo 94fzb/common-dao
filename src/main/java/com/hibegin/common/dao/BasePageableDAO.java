@@ -16,12 +16,12 @@ import java.util.stream.Collectors;
 
 public class BasePageableDAO extends DAO {
 
-    private static <T> T convert(Object obj, Class<T> clazz) {
+    protected static <T> T convert(Object obj, Class<T> clazz) {
         String jsonStr = new Gson().toJson(obj);
         return new Gson().fromJson(jsonStr, clazz);
     }
 
-    private static <T> List<T> doConvertList(List<Map<String, Object>> results, Class<T> clazz) {
+    protected static <T> List<T> doConvertList(List<Map<String, Object>> results, Class<T> clazz) {
         return results.stream().map(e -> {
             if (clazz.isAssignableFrom(Map.class)) {
                 return (T) e;
