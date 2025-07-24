@@ -7,12 +7,8 @@ tagName="v${releaseVersion}"
 ./mvnw clean install -U
 git add -A
 git commit -m '[shell-release]release version '${releaseVersion}
-git checkout release
-git reset --hard master
 git tag ${tagName}
 git push origin ${tagName}
-git push origin release -f
-git checkout master
 ./mvnw versions:set -DnewVersion=${nextVersion}
 git add -A
 git commit -m '[shell-release]next version '${nextVersion}
