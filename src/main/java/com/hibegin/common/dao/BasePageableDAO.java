@@ -1,6 +1,5 @@
 package com.hibegin.common.dao;
 
-import com.google.gson.Gson;
 import com.hibegin.common.dao.dto.*;
 
 import java.sql.SQLException;
@@ -16,17 +15,12 @@ import java.util.stream.Collectors;
 
 public class BasePageableDAO extends DAO {
 
-    protected static <T> T convert(Object obj, Class<T> clazz) {
-        String jsonStr = new Gson().toJson(obj);
-        return new Gson().fromJson(jsonStr, clazz);
-    }
-
     protected static <T> List<T> doConvertList(List<Map<String, Object>> results, Class<T> clazz) {
         return results.stream().map(e -> {
             if (clazz.isAssignableFrom(Map.class)) {
                 return (T) e;
             }
-            return convert(e, clazz);
+            return ResultBeanUtils.convert(e, clazz);
         }).collect(Collectors.toList());
     }
 
