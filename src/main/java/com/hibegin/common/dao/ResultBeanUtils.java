@@ -20,14 +20,17 @@ public class ResultBeanUtils {
         Map<String, Object> map = new HashMap<>();
         map.put("testBoolean", "1.0");
         map.put("testBoolean2", "1.0");
+        map.put("testBoolean3", null);
+        map.put("testLong", "");
         TestBean convert = convert(map, TestBean.class);
-        System.out.println("convert.testBoolean = " + convert.testBoolean);
-        System.out.println("convert.testBoolean = " + convert.testBoolean);
+        System.out.println("convert = " + gson.toJson(convert));
     }
 
     public static class TestBean {
         private Boolean testBoolean;
         private boolean testBoolean2;
+        private Boolean testBoolean3;
+        private Long testLong;
 
         public Boolean getTestBoolean() {
             return testBoolean;
@@ -43,6 +46,22 @@ public class ResultBeanUtils {
 
         public void setTestBoolean2(boolean testBoolean2) {
             this.testBoolean2 = testBoolean2;
+        }
+
+        public Boolean getTestBoolean3() {
+            return testBoolean3;
+        }
+
+        public void setTestBoolean3(Boolean testBoolean3) {
+            this.testBoolean3 = testBoolean3;
+        }
+
+        public Long getTestLong() {
+            return testLong;
+        }
+
+        public void setTestLong(Long testLong) {
+            this.testLong = testLong;
         }
     }
 
