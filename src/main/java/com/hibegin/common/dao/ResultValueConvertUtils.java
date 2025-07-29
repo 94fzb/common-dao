@@ -5,6 +5,7 @@ import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.temporal.ChronoField;
@@ -39,43 +40,55 @@ public class ResultValueConvertUtils {
         return OffsetDateTime.parse(dateStr, formatter);
     }
 
-    public static String formatDate(Object date, String format) {
+    public static Long parseDate(Object date) {
         if (Objects.isNull(date)) {
             return null;
         }
         if (date instanceof String) {
             if (((String) date).trim().isEmpty()) {
-                return "";
+                return null;
             }
             String dateStr = (String) date;
             if (dateStr.matches(".*([+-]\\d{2}(:?\\d{2})?|Z)$") && dateStr.contains(":")) {
                 // 带时区信息，直接用 OffsetDateTime 或 ZonedDateTime 解析
                 OffsetDateTime offsetDateTime = parse((String) date);
-                return offsetDateTime.atZoneSameInstant(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern(format));
+                return offsetDateTime.atZoneSameInstant(ZoneId.systemDefault()).toInstant().toEpochMilli();
             } else {
                 if (dateStr.contains(":")) {
                     TemporalAccessor parsed = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").parse(dateStr);
                     // 包含时间部分
                     LocalDateTime dt = LocalDateTime.from(parsed);
-                    return dt.format(DateTimeFormatter.ofPattern(format));
+                    return dt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
                 }
                 try {
                     Date parse = new SimpleDateFormat("yyyy-MM-dd").parse(dateStr);
-                    return new SimpleDateFormat(format).format(parse);
+                    return parse.getTime();
                 } catch (ParseException e) {
                     throw new RuntimeException(e);
                 }
             }
         } else if (date instanceof LocalDateTime) {
-            return ((LocalDateTime) date).format(DateTimeFormatter.ofPattern(format));
+            return ((LocalDateTime) date).atZone(ZoneId.systemDefault())
+                    .toInstant().toEpochMilli();
         } else if (date instanceof Date) {
-            return new SimpleDateFormat(format).format(date);
+            return ((Date) date).getTime();
         }
-        return date.toString();
+        return null;
+    }
+
+    public static String formatDate(Object date, String format) {
+        Long time = parseDate(date);
+        if (Objects.isNull(time)) {
+            if (Objects.isNull(date)) {
+                return "";
+            }
+            return date.toString();
+        }
+        OffsetDateTime offsetDateTime = new Date(time).toInstant().atZone(ZoneId.systemDefault()).toOffsetDateTime();
+        return offsetDateTime.format(DateTimeFormatter.ofPattern(format));
     }
 
     public static void main(String[] args) {
-        System.out.println(ResultValueConvertUtils.formatDate(new Date(), "yyyy-MM-dd HH:mm:ss"));
         String[] samples = {
                 "2024-12-31 16:00:00 +08:00",
                 "2024-12-31 16:00:00 +0800",
@@ -85,7 +98,13 @@ public class ResultValueConvertUtils {
                 "2024-12-31",
         };
         for (String sample : samples) {
-            System.out.println("parse(" + sample + ") = " + formatDate(sample, "yyyy_MM_dd HH:mm:ss"));
+            Long a = parseDate(sample);
+            if (a != null) {
+                System.out.println("parseDate(" + sample + ") = " + new Date(a));
+            } else {
+                System.out.println("parseDate(" + sample + ") error");
+            }
+            System.out.println("formatDate(" + sample + ") = " + formatDate(sample, "yyyy_MM_dd HH:mm:ss"));
         }
     }
 
