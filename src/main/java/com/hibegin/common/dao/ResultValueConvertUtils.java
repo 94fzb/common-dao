@@ -56,19 +56,10 @@ public class ResultValueConvertUtils {
             if (((String) date).trim().isEmpty()) {
                 return null;
             }
-            String dateStr = (String) date;
-            if (dateStr.contains("T")) {
-                // ISO 8601 格式：支持 T 分隔的 LocalDateTime
-                LocalDateTime dt;
-                if (dateStr.contains("+")) {
-                    dt = LocalDateTime.parse(dateStr, DateTimeFormatter.ISO_OFFSET_DATE_TIME);
-                } else {
-                    dt = LocalDateTime.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-                }
-                return dt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
-            } else if (dateStr.matches(".*([+-]\\d{2}(:?\\d{2})?|Z)$") && dateStr.contains(":")) {
+            String dateStr = ((String) date).replace("T", " ");
+            if (dateStr.matches(".*([+-]\\d{2}(:?\\d{2})?|Z)$") && dateStr.contains(":")) {
                 // 带时区信息，直接用 OffsetDateTime 或 ZonedDateTime 解析
-                OffsetDateTime offsetDateTime = parse((String) date);
+                OffsetDateTime offsetDateTime = parse(dateStr);
                 return offsetDateTime.atZoneSameInstant(ZoneId.systemDefault()).toInstant().toEpochMilli();
             } else {
                 if (dateStr.contains(":")) {
