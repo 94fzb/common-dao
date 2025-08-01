@@ -1,9 +1,10 @@
-package com.hibegin.common.dao;
+package com.hibegin.common.dao.gson;
 
 import com.google.gson.JsonParseException;
 import com.google.gson.TypeAdapter;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import com.hibegin.common.dao.ResultValueConvertUtils;
 
 public class FlexibleBooleanAdapter extends TypeAdapter<Boolean> {
     @Override

@@ -2,14 +2,19 @@ package com.hibegin.common.dao;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.hibegin.common.dao.gson.FlexibleBooleanAdapter;
+import com.hibegin.common.dao.gson.LocalDateTimeAdapter;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
 public class ResultBeanUtils {
 
     private static final Gson gson = new GsonBuilder().registerTypeAdapter(Boolean.class, new FlexibleBooleanAdapter())
-            .registerTypeAdapter(boolean.class, new FlexibleBooleanAdapter()).create();
+            .registerTypeAdapter(boolean.class, new FlexibleBooleanAdapter())
+            .registerTypeAdapter(LocalDateTime.class, new LocalDateTimeAdapter())
+            .create();
 
     public static <T> T convert(Object obj, Class<T> tClass) {
         String jsonStr = gson.toJson(obj);
