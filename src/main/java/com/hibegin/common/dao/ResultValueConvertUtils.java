@@ -39,6 +39,15 @@ public class ResultValueConvertUtils {
         return OffsetDateTime.parse(dateStr, formatter);
     }
 
+    /**
+     * 将输入的一个时间类型的数据，转化为时间戳格式
+     * 1. String
+     * 2. Date/LocalDateTime
+     * 3. Number ，返回 long 值
+     *
+     * @param date
+     * @return
+     */
     public static Long parseDate(Object date) {
         if (Objects.isNull(date)) {
             return null;
@@ -50,7 +59,12 @@ public class ResultValueConvertUtils {
             String dateStr = (String) date;
             if (dateStr.contains("T")) {
                 // ISO 8601 格式：支持 T 分隔的 LocalDateTime
-                LocalDateTime dt = LocalDateTime.parse(dateStr, DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+                LocalDateTime dt;
+                if (dateStr.contains("+")) {
+                    dt = LocalDateTime.parse(dateStr, DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+                } else {
+                    dt = LocalDateTime.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                }
                 return dt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
             } else if (dateStr.matches(".*([+-]\\d{2}(:?\\d{2})?|Z)$") && dateStr.contains(":")) {
                 // 带时区信息，直接用 OffsetDateTime 或 ZonedDateTime 解析
@@ -75,6 +89,8 @@ public class ResultValueConvertUtils {
                     .toInstant().toEpochMilli();
         } else if (date instanceof Date) {
             return ((Date) date).getTime();
+        } else if (date instanceof Number) {
+            return ((Number) date).longValue();
         }
         return null;
     }
@@ -92,21 +108,23 @@ public class ResultValueConvertUtils {
     }
 
     public static void main(String[] args) {
-        String[] samples = {
+        Object[] samples = {
                 "2024-12-31 16:00:00 +08:00",
                 "2024-12-31 16:00:00 +0800",
                 "2024-12-31 16:00:00 +08",
                 "2024-12-31 16:00:00Z",
                 "2024-12-31 16:00:00",
                 "2024-12-31",
+                "2024-12-31T16:00:00",
                 "2024-12-31T16:00:00+08:00",
+                System.currentTimeMillis(),
         };
-        for (String sample : samples) {
+        for (Object sample : samples) {
             Long a = parseDate(sample);
             if (a != null) {
-                System.out.println("parseDate(" + sample + ") = " + new Date(a));
+                //System.out.println("parseDate(" + sample + ") = " + new Date(a));
             } else {
-                System.out.println("parseDate(" + sample + ") error");
+                //System.out.println("parseDate(" + sample + ") error");
             }
             System.out.println("formatDate(" + sample + ") = " + formatDate(sample, "yyyy_MM_dd HH:mm:ss"));
         }

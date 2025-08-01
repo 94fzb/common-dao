@@ -58,7 +58,8 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
     public String getDbInfo() {
         try {
             if (isWebApi()) {
-                return "webapi/1.1.1";
+                String version = Objects.requireNonNullElse(DataSourceWrapperImpl.class.getPackage().getImplementationVersion(), "unknown");
+                return "webapi/" + version;
             }
             return (String) new DAO(this).queryFirstObj("select version()");
         } catch (Exception e) {
