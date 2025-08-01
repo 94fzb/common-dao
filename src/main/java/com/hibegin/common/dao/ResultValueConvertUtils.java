@@ -48,7 +48,11 @@ public class ResultValueConvertUtils {
                 return null;
             }
             String dateStr = (String) date;
-            if (dateStr.matches(".*([+-]\\d{2}(:?\\d{2})?|Z)$") && dateStr.contains(":")) {
+            if (dateStr.contains("T")) {
+                // ISO 8601 格式：支持 T 分隔的 LocalDateTime
+                LocalDateTime dt = LocalDateTime.parse(dateStr, DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+                return dt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+            } else if (dateStr.matches(".*([+-]\\d{2}(:?\\d{2})?|Z)$") && dateStr.contains(":")) {
                 // 带时区信息，直接用 OffsetDateTime 或 ZonedDateTime 解析
                 OffsetDateTime offsetDateTime = parse((String) date);
                 return offsetDateTime.atZoneSameInstant(ZoneId.systemDefault()).toInstant().toEpochMilli();
@@ -95,6 +99,7 @@ public class ResultValueConvertUtils {
                 "2024-12-31 16:00:00Z",
                 "2024-12-31 16:00:00",
                 "2024-12-31",
+                "2024-12-31T16:00:00+08:00",
         };
         for (String sample : samples) {
             Long a = parseDate(sample);
