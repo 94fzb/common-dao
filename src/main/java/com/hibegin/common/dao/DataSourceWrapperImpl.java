@@ -5,6 +5,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import org.apache.commons.dbutils.QueryRunner;
 
+import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Objects;
@@ -58,7 +59,7 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
     public String getDbInfo() {
         try {
             if (isWebApi()) {
-                return "webapi/1.1.5";
+                return "webapi/1.1.6";
             }
             return (String) new DAO(this).queryFirstObj("select version()");
         } catch (Exception e) {
@@ -82,5 +83,24 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
             return new DatabaseConnectPoolInfo(0, 0);
         }
         return new DatabaseConnectPoolInfo(hikariPoolMXBean.getActiveConnections(), hikariPoolMXBean.getTotalConnections());
+    }
+
+    @Override
+    public void close() {
+        super.close();
+        if (isWebApi()) {
+            return;
+        }
+        String jdbcUrl = (String) getDataSourceProperties().get("jdbcUrl");
+        if (Objects.nonNull(jdbcUrl) && jdbcUrl.contains("mysql")) {
+            try {
+                Class<?> clazz = Class.forName("com.mysql.cj.jdbc.AbandonedConnectionCleanupThread");
+                // 调用静态方法 checkedShutdown()
+                Method method = clazz.getMethod("checkedShutdown");
+                method.invoke(null);
+            } catch (Exception e) {
+                LOGGER.info("DataSource close error " + e.getMessage());
+            }
+        }
     }
 }
