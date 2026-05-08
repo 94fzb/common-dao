@@ -16,6 +16,7 @@ import java.util.logging.Logger;
 public class DataSourceWrapperImpl extends HikariDataSource implements DataSourceWrapper {
 
     private static final Logger LOGGER = LoggerUtil.getLogger(DataSourceWrapperImpl.class);
+    private static final String PROJECT_VERSION_RESOURCE = "META-INF/maven/com.hibegin/common-dao/pom.properties";
     private final boolean dev;
     private final QueryRunner queryRunner;
 
@@ -59,13 +60,27 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
     public String getDbInfo() {
         try {
             if (isWebApi()) {
-                return "webapi/1.1.6";
+                return "webapi/" + getProjectVersion();
             }
             return (String) new DAO(this).queryFirstObj("select version()");
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "DB connect error ", e);
         }
         return "Unknown";
+    }
+
+    private static String getProjectVersion() {
+        try (var inputStream = DataSourceWrapperImpl.class.getClassLoader().getResourceAsStream(PROJECT_VERSION_RESOURCE)) {
+            if (inputStream == null) {
+                return "unknown";
+            }
+            Properties properties = new Properties();
+            properties.load(inputStream);
+            return properties.getProperty("version", "unknown");
+        } catch (Exception e) {
+            LOGGER.log(Level.FINE, "Read project version error", e);
+            return "unknown";
+        }
     }
 
     @Override
