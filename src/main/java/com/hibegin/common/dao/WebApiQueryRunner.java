@@ -169,7 +169,7 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
             if (send.statusCode() == 200) {
                 Map<String, Object> map = gson.fromJson(send.body(), Map.class);
                 if (Objects.equals(map.get("success"), true)) {
-                    return Math.min(1, Objects.requireNonNullElse((Integer) map.get("changes"), 1));
+                    return extractUpdateCount(map);
                 }
             }
             throw new SQLException(send.body());
@@ -180,6 +180,28 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
                 LOGGER.log(Level.INFO, sql + " took " + (System.currentTimeMillis() - start) + "ms");
             }
         }
+    }
+
+    private int extractUpdateCount(Map<String, Object> response) throws SQLException {
+        Object changes = response.get("changes");
+        Object meta = response.get("meta");
+        if (changes == null && meta instanceof Map) {
+            changes = ((Map<?, ?>) meta).get("changes");
+        }
+        if (changes == null) {
+            return 0;
+        }
+        if (changes instanceof Number) {
+            return Math.max(0, ((Number) changes).intValue());
+        }
+        if (changes instanceof String) {
+            try {
+                return Math.max(0, Double.valueOf((String) changes).intValue());
+            } catch (NumberFormatException e) {
+                throw new SQLException("Invalid changes value: " + changes, e);
+            }
+        }
+        throw new SQLException("Invalid changes value: " + changes);
     }
 
     @Override

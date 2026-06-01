@@ -31,6 +31,7 @@
         <disableJava21>false</disableJava21>
         <project.build.outputTimestamp>2026-05-08T14:29:47Z</project.build.outputTimestamp>
         <gpg.passphrase/>
+        <junit.jupiter.version>5.11.4</junit.jupiter.version>
     </properties>
 
     <dependencies>
@@ -70,6 +71,12 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
             <version>2.0.13</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -166,6 +173,11 @@
                         <argument>loopback</argument>
                     </gpgArguments>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
             </plugin>
             <plugin>
                 <groupId>org.sonatype.central</groupId>
