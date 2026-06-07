@@ -1,6 +1,5 @@
 package com.hibegin.common.dao;
 
-import com.hibegin.common.util.LoggerUtil;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import org.apache.commons.dbutils.QueryRunner;
@@ -15,7 +14,7 @@ import java.util.logging.Logger;
 
 public class DataSourceWrapperImpl extends HikariDataSource implements DataSourceWrapper {
 
-    private static final Logger LOGGER = LoggerUtil.getLogger(DataSourceWrapperImpl.class);
+    private static final Logger LOGGER = DaoLoggerUtil.getLogger(DataSourceWrapperImpl.class);
     private static final String PROJECT_VERSION_RESOURCE = "META-INF/maven/com.hibegin/common-dao/pom.properties";
     private final boolean dev;
     private final QueryRunner queryRunner;

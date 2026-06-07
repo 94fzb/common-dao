@@ -1,8 +1,8 @@
 package com.hibegin.common.dao;
 
-import com.hibegin.common.util.IOUtil;
-
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 public class SqlConvertUtils {
 
     public static List<String> extractExecutableSqlByInputStream(InputStream inputStream) {
-        return extractExecutableSql(IOUtil.getStringInputStream(inputStream));
+        return extractExecutableSql(inputStreamToString(inputStream));
     }
 
     public static List<String> extractExecutableSql(String sql) {
@@ -201,5 +201,16 @@ public class SqlConvertUtils {
             }
         }
         return result;
+    }
+
+    private static String inputStreamToString(InputStream inputStream) {
+        if (inputStream == null) {
+            return "";
+        }
+        try {
+            return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new IllegalStateException("Read SQL input stream failed", e);
+        }
     }
 }

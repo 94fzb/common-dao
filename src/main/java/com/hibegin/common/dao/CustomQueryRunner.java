@@ -1,6 +1,5 @@
 package com.hibegin.common.dao;
 
-import com.hibegin.common.util.LoggerUtil;
 import org.apache.commons.dbutils.QueryRunner;
 import org.apache.commons.dbutils.ResultSetHandler;
 
@@ -12,7 +11,7 @@ import java.util.logging.Logger;
 
 public class CustomQueryRunner extends QueryRunner {
 
-    private static final Logger LOGGER = LoggerUtil.getLogger(CustomQueryRunner.class);
+    private static final Logger LOGGER = DaoLoggerUtil.getLogger(CustomQueryRunner.class);
 
     private final boolean dev;
 
@@ -42,7 +41,7 @@ public class CustomQueryRunner extends QueryRunner {
             return super.query(conn, sql, rsh, params);
         } finally {
             if (dev) {
-                LOGGER.log(Level.INFO, sql + " took " + (System.currentTimeMillis() - start) + "ms");
+                LOGGER.log(Level.INFO, DaoLogContext.format(sql + " took " + (System.currentTimeMillis() - start) + "ms"));
             }
         }
     }
@@ -68,7 +67,7 @@ public class CustomQueryRunner extends QueryRunner {
             throw e;
         } finally {
             if (dev) {
-                LOGGER.log(Level.INFO, sql + " took " + (System.currentTimeMillis() - start) + "ms");
+                LOGGER.log(Level.INFO, DaoLogContext.format(sql + " took " + (System.currentTimeMillis() - start) + "ms"));
             }
         }
     }

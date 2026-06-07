@@ -1,8 +1,6 @@
 package com.hibegin.common.dao;
 
 import com.google.gson.Gson;
-import com.hibegin.common.util.LoggerUtil;
-import com.hibegin.common.util.ObjectUtil;
 import org.apache.commons.dbutils.QueryRunner;
 import org.apache.commons.dbutils.ResultSetHandler;
 import org.apache.commons.dbutils.handlers.MapHandler;
@@ -25,7 +23,7 @@ import java.util.logging.Logger;
 
 public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo {
 
-    private static final Logger LOGGER = LoggerUtil.getLogger(WebApiQueryRunner.class);
+    private static final Logger LOGGER = DaoLoggerUtil.getLogger(WebApiQueryRunner.class);
     private final Properties dbProperties;
     private final HttpClient httpClient;
     private final Gson gson = new Gson();
@@ -40,7 +38,8 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
         this.dbProperties = dataSourceProperties;
         this.dev = dev;
         URI uri = URI.create(dbProperties.getProperty("jdbcUrl").replaceAll("jdbc:", ""));
-        boolean http2 = ObjectUtil.requireNonNullElse(uri.getQuery(), "").contains("supportHttp2=true");
+        String query = uri.getQuery() == null ? "" : uri.getQuery();
+        boolean http2 = query.contains("supportHttp2=true");
         this.webApiUrl = URI.create("https://" + uri.getHost() + ":" + uri.getPort() + uri.getPath());
         this.semaphore = new Semaphore(maximumPoolSize);
         this.maximumPoolSize = maximumPoolSize;
@@ -128,7 +127,7 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
             throw new SQLException(e);
         } finally {
             if (dev) {
-                LOGGER.log(Level.INFO, sql + " took " + (System.currentTimeMillis() - start) + "ms");
+                LOGGER.log(Level.INFO, DaoLogContext.format(sql + " took " + (System.currentTimeMillis() - start) + "ms"));
             }
         }
     }
@@ -177,7 +176,7 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
             throw new SQLException(e);
         } finally {
             if (dev) {
-                LOGGER.log(Level.INFO, sql + " took " + (System.currentTimeMillis() - start) + "ms");
+                LOGGER.log(Level.INFO, DaoLogContext.format(sql + " took " + (System.currentTimeMillis() - start) + "ms"));
             }
         }
     }
