@@ -31,7 +31,7 @@ public final class DaoLogContext {
         if (label == null) {
             return message;
         }
-        return "[dao-context=" + label + "] " + message;
+        return "[" + label + "] " + message;
     }
 
     private static String normalize(String label) {

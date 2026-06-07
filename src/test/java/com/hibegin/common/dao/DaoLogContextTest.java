@@ -12,10 +12,10 @@ class DaoLogContextTest {
         assertNull(DaoLogContext.currentLabel());
         try (DaoLogContext.Scope ignored = DaoLogContext.open("plugin-a")) {
             assertEquals("plugin-a", DaoLogContext.currentLabel());
-            assertEquals("[dao-context=plugin-a] select 1", DaoLogContext.format("select 1"));
+            assertEquals("[plugin-a] select 1", DaoLogContext.format("select 1"));
             try (DaoLogContext.Scope nested = DaoLogContext.open("plugin-b")) {
                 assertEquals("plugin-b", DaoLogContext.currentLabel());
-                assertEquals("[dao-context=plugin-b] select 2", DaoLogContext.format("select 2"));
+                assertEquals("[plugin-b] select 2", DaoLogContext.format("select 2"));
             }
             assertEquals("plugin-a", DaoLogContext.currentLabel());
         }
