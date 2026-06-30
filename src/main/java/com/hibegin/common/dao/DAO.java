@@ -38,6 +38,10 @@ public class DAO implements IDAO {
         defaultDataSource = ds;
     }
 
+    public static DataSourceWrapper getDefaultDataSource() {
+        return defaultDataSource;
+    }
+
     public Map<String, Object> getAttrs() {
         return attrs;
     }

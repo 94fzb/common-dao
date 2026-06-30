@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -96,6 +97,34 @@ public class SqlConvertUtils {
             }
         }
         return result;
+    }
+
+    public static List<String> doMySQLToH2BySqlText(String rawSql) {
+        List<String> result = new ArrayList<>();
+        for (String sqlSt : SqlConvertUtils.extractExecutableSql(rawSql)) {
+            String cleanText = normalizeMySQLToH2(sqlSt);
+            if (!isBatchDropTableSql(cleanText)) {
+                result.add(cleanText);
+            }
+        }
+        return result;
+    }
+
+    public static String normalizeMySQLToH2(String sql) {
+        return sql
+                .replaceAll("(?i)UNIQUE\\s+KEY\\s+`[^`]+`\\s*\\(", "UNIQUE (")
+                .replaceAll("(?i)KEY\\s+`[^`]+`\\s*\\(", "INDEX (")
+                .replaceAll("(?i)\\s+COMMENT\\s+'[^']*'", "")
+                .replace("bit(1)", "boolean")
+                .replace("DEFAULT b'0'", "DEFAULT false")
+                .replace("DEFAULT b'1'", "DEFAULT true")
+                .replaceAll("(?i)\\)\\s*ENGINE\\s*=\\s*InnoDB\\s+DEFAULT\\s+CHARSET\\s*=\\s*[^\\s;]+"
+                        + "(?:\\s+COLLATE\\s+[^\\s;]+)?", ")");
+    }
+
+    public static boolean isBatchDropTableSql(String sql) {
+        String trimSql = sql.trim().toUpperCase(Locale.ROOT);
+        return trimSql.startsWith("DROP TABLE IF EXISTS") && trimSql.contains(",");
     }
 
     public static List<Object> extractValues(String sql) {
