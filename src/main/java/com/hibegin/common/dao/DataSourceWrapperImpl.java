@@ -61,11 +61,33 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
             if (isWebApi()) {
                 return "webapi/" + getProjectVersion();
             }
-            return (String) new DAO(this).queryFirstObj("select version()");
+            return (String) new DAO(this).queryFirstObj(getDatabaseVersionSql());
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "DB connect error ", e);
         }
         return "Unknown";
+    }
+
+    private String getDatabaseVersionSql() {
+        if (isH2()) {
+            return "select h2version()";
+        }
+        return "select version()";
+    }
+
+    private boolean isH2() {
+        String jdbcUrl = getJdbcUrl();
+        if (jdbcUrl == null) {
+            jdbcUrl = (String) getDataSourceProperties().get("jdbcUrl");
+        }
+        if (jdbcUrl != null && jdbcUrl.startsWith("jdbc:h2:")) {
+            return true;
+        }
+        String driverClassName = getDriverClassName();
+        if (driverClassName == null) {
+            driverClassName = getDataSourceProperties().getProperty("driverClass");
+        }
+        return "org.h2.Driver".equals(driverClassName);
     }
 
     private static String getProjectVersion() {

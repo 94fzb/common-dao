@@ -28,6 +28,15 @@ class InMemoryDatabaseTest {
     }
 
     @Test
+    void shouldReadH2VersionInfo() throws Exception {
+        try (InMemoryDatabase database = InMemoryDatabase.openH2("common_dao_version")) {
+            String dbInfo = database.dataSource().getDbInfo();
+
+            assertTrue(dbInfo.matches("\\d+\\.\\d+\\..+"));
+        }
+    }
+
+    @Test
     void shouldLoadMySQLSchemaIntoH2() throws Exception {
         String sql = "# comment\n"
                 + "DROP TABLE IF EXISTS `sample`, `other`;\n"
