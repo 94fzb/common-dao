@@ -23,7 +23,7 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
         setDataSourceProperties(properties);
         this.dev = dev;
         if (this.isWebApi()) {
-            queryRunner = new WebApiQueryRunner(this.getDataSourceProperties(), this.isDev(), Math.min(getMaximumPoolSize(), 1));
+            queryRunner = new WebApiQueryRunner(this.getDataSourceProperties(), this.isDev(), Math.max(getMaximumPoolSize(), 1));
         } else {
             queryRunner = new CustomQueryRunner(this, true);
         }
