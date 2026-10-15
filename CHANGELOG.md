@@ -1,3 +1,7 @@
+### 1.1.13
+
+- Omit missing or blank JDBC catalogs from successful connection-test logs, including SQLite connections.
+
 ### 1.1.12
 
 - Fix WebAPI requests being limited to one concurrent request regardless of the pool capacity. Use the pool size with a minimum of one; the default capacity is 10.
