@@ -46,7 +46,8 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
             return;
         }
         try (Connection connection = getConnection()) {
-            LOGGER.info("Db test connect success " + connection.getCatalog());
+            String catalog = connection.getCatalog();
+            LOGGER.info("Db test connect success" + (catalog == null || catalog.isBlank() ? "" : " " + catalog));
         }
     }
 
