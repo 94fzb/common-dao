@@ -7,6 +7,7 @@ import org.apache.commons.dbutils.handlers.MapHandler;
 import org.apache.commons.dbutils.handlers.ScalarHandler;
 
 import java.io.IOException;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -35,6 +36,18 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
 
 
     public WebApiQueryRunner(Properties dataSourceProperties, boolean dev, int maximumPoolSize) {
+        this(dataSourceProperties, dev, maximumPoolSize, null);
+    }
+
+    /**
+     * Creates a runner with an optional proxy for WebAPI requests.
+     *
+     * @param dataSourceProperties WebAPI data source properties
+     * @param dev whether to log SQL timings
+     * @param maximumPoolSize maximum number of concurrent requests
+     * @param proxySelector proxy selector, or {@code null} to use the JDK default
+     */
+    public WebApiQueryRunner(Properties dataSourceProperties, boolean dev, int maximumPoolSize, ProxySelector proxySelector) {
         this.dbProperties = dataSourceProperties;
         this.dev = dev;
         URI uri = URI.create(dbProperties.getProperty("jdbcUrl").replaceAll("jdbc:", ""));
@@ -43,7 +56,13 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
         this.webApiUrl = URI.create("https://" + uri.getHost() + ":" + uri.getPort() + uri.getPath());
         this.semaphore = new Semaphore(maximumPoolSize);
         this.maximumPoolSize = maximumPoolSize;
-        this.httpClient = HttpClient.newBuilder().executor(Executors.newFixedThreadPool(maximumPoolSize)).version(http2 ? HttpClient.Version.HTTP_2 : HttpClient.Version.HTTP_1_1).build();
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .executor(Executors.newFixedThreadPool(maximumPoolSize))
+                .version(http2 ? HttpClient.Version.HTTP_2 : HttpClient.Version.HTTP_1_1);
+        if (proxySelector != null) {
+            builder.proxy(proxySelector);
+        }
+        this.httpClient = builder.build();
     }
 
     private HttpRequest buildHttpRequest(String sql, Object... params) {

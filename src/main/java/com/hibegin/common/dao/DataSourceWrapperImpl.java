@@ -5,6 +5,7 @@ import com.zaxxer.hikari.HikariPoolMXBean;
 import org.apache.commons.dbutils.QueryRunner;
 
 import java.lang.reflect.Method;
+import java.net.ProxySelector;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Objects;
@@ -20,10 +21,21 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
     private final QueryRunner queryRunner;
 
     public DataSourceWrapperImpl(Properties properties, boolean dev) {
+        this(properties, dev, null);
+    }
+
+    /**
+     * Creates a data source with an optional proxy for WebAPI requests.
+     *
+     * @param properties data source properties
+     * @param dev whether to log SQL timings
+     * @param proxySelector WebAPI proxy selector, or {@code null} to use the JDK default; ignored for JDBC
+     */
+    public DataSourceWrapperImpl(Properties properties, boolean dev, ProxySelector proxySelector) {
         setDataSourceProperties(properties);
         this.dev = dev;
         if (this.isWebApi()) {
-            queryRunner = new WebApiQueryRunner(this.getDataSourceProperties(), this.isDev(), Math.max(getMaximumPoolSize(), 1));
+            queryRunner = new WebApiQueryRunner(this.getDataSourceProperties(), this.isDev(), Math.max(getMaximumPoolSize(), 1), proxySelector);
         } else {
             queryRunner = new CustomQueryRunner(this, true);
         }
@@ -41,7 +53,7 @@ public class DataSourceWrapperImpl extends HikariDataSource implements DataSourc
     @Override
     public void testConnection() throws SQLException {
         if (isWebApi()) {
-            new WebApiQueryRunner(getDataSourceProperties(), dev, getMaximumPoolSize()).testConnection();
+            ((WebApiQueryRunner) queryRunner).testConnection();
             LOGGER.info("Webapi test connect success");
             return;
         }

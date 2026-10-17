@@ -1,3 +1,7 @@
+### 1.1.14
+
+- Support configuring WebAPI HTTP proxies in code with a standard JDK `ProxySelector`. Connection checks reuse the data source's proxy configuration.
+
 ### 1.1.13
 
 - Omit missing or blank JDBC catalogs from successful connection-test logs, including SQLite connections.
