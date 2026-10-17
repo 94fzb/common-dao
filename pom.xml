@@ -31,7 +31,7 @@
         <disableJava21>false</disableJava21>
         <project.build.outputTimestamp>2026-07-04T12:32:26Z</project.build.outputTimestamp>
         <gpg.passphrase/>
-        <junit.jupiter.version>5.11.4</junit.jupiter.version>
+        <junit.jupiter.version>6.1.2</junit.jupiter.version>
     </properties>
 
     <dependencies>
