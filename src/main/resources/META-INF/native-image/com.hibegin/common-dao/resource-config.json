@@ -1,0 +1,9 @@
+{
+  "resources": {
+    "includes": [
+      {
+        "pattern": "\\QMETA-INF/maven/com.hibegin/common-dao/pom.properties\\E"
+      }
+    ]
+  }
+}

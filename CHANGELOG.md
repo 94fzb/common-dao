@@ -1,3 +1,7 @@
+### 1.1.15
+
+- Include the common-dao version resource in Native Image builds so WebAPI database information reports its version even when tracing uses another database.
+
 ### 1.1.14
 
 - Support configuring WebAPI HTTP proxies in code with a standard JDK `ProxySelector`. Connection checks reuse the data source's proxy configuration.
