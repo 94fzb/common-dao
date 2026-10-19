@@ -15,6 +15,14 @@ import java.util.stream.Collectors;
 
 public class BasePageableDAO extends DAO {
 
+    public BasePageableDAO() {
+        super();
+    }
+
+    public BasePageableDAO(DataSourceWrapper dataSource) {
+        super(dataSource);
+    }
+
     protected static <T> List<T> doConvertList(List<Map<String, Object>> results, Class<T> clazz) {
         return results.stream().map(e -> {
             if (clazz.isAssignableFrom(Map.class)) {

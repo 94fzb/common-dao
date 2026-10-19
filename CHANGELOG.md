@@ -1,3 +1,8 @@
+### 1.1.16
+
+- Allow `BasePageableDAO` to receive an explicit `DataSourceWrapper`, so pageable DAOs can use an application-owned database without depending on the global default data source. The no-argument constructor remains available.
+- Verify that queries and writes stay on the supplied data source when the global default changes.
+
 ### 1.1.15
 
 - Include the common-dao version resource in Native Image builds so WebAPI database information reports its version even when tracing uses another database.
