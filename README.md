@@ -6,6 +6,7 @@
 
 - support webapi (wrapper query runner)
 - basic page query
+- [entity / repository API](docs/entity-repository.md)
 
 ### tips
 

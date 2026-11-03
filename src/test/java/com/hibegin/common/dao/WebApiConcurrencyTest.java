@@ -7,14 +7,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
-import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManagerFactory;
-import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
@@ -38,7 +34,7 @@ class WebApiConcurrencyTest {
     @Timeout(45)
     void webApiRequestsUseThePoolCapacityAndQueueOverflow() throws Exception {
         SSLContext previousContext = SSLContext.getDefault();
-        SSLContext testContext = localTlsContext();
+        SSLContext testContext = LocalTls.create(temporaryDirectory);
         HttpsServer server = HttpsServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         ExecutorService serverExecutor = Executors.newCachedThreadPool();
         ExecutorService callers = Executors.newCachedThreadPool();
@@ -108,30 +104,5 @@ class WebApiConcurrencyTest {
         }
     }
 
-    private SSLContext localTlsContext() throws Exception {
-        Path keyStorePath = temporaryDirectory.resolve("localhost.p12");
-        String executable = System.getProperty("os.name").startsWith("Windows") ? "keytool.exe" : "keytool";
-        Process keytool = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", executable).toString(),
-                "-genkeypair", "-alias", "localhost", "-keyalg", "RSA", "-keysize", "2048",
-                "-storetype", "PKCS12", "-keystore", keyStorePath.toString(), "-storepass", "local-test",
-                "-dname", "CN=localhost", "-ext", "SAN=ip:127.0.0.1", "-validity", "1", "-noprompt")
-                .redirectErrorStream(true).start();
-        try {
-            assertTrue(keytool.waitFor(10, TimeUnit.SECONDS), "Local test certificate generation should finish");
-            assertEquals(0, keytool.exitValue(), new String(keytool.getInputStream().readAllBytes(), StandardCharsets.UTF_8));
-        } finally {
-            keytool.destroyForcibly();
-        }
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        try (InputStream input = java.nio.file.Files.newInputStream(keyStorePath)) {
-            keyStore.load(input, "local-test".toCharArray());
-        }
-        KeyManagerFactory keys = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-        keys.init(keyStore, "local-test".toCharArray());
-        TrustManagerFactory trust = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-        trust.init(keyStore);
-        SSLContext context = SSLContext.getInstance("TLS");
-        context.init(keys.getKeyManagers(), trust.getTrustManagers(), null);
-        return context;
-    }
+
 }
