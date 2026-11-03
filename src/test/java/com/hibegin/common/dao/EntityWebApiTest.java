@@ -274,6 +274,9 @@ class EntityWebApiTest {
         assertEquals(entry.getCreatedAt(), loaded.getCreatedAt());
         assertEquals(entry.calendarDay, loaded.calendarDay);
         assertEquals(entry.publishedAt, loaded.publishedAt);
+        Object legacyValue = source.getQueryRunner().query("SELECT publishedAt FROM calendar_entry WHERE id=?",
+                new org.apache.commons.dbutils.handlers.ScalarHandler<>(), entry.getId());
+        assertEquals(entry.publishedAt.getTime(), ResultValueConvertUtils.parseDate(legacyValue));
         assertEquals(1, dates.findMatching(Map.of("publishedAt", entry.publishedAt, "calendarDay", entry.calendarDay), 10).size());
         try (java.sql.Statement statement = sqlite.createStatement();
              ResultSet row = statement.executeQuery("SELECT typeof(createdAt),strftime('%Y',calendarDay),publishedAt"

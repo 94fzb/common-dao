@@ -76,6 +76,8 @@ The repository does not increase a column's precision or read back values rounde
 JDBC receives typed date/time parameters. SQLite has no dedicated temporal storage class, so SQLite
 JDBC and SQLite/D1 WebAPI receive date/time text (`yyyy-MM-dd` or `yyyy-MM-dd HH:mm:ss[.fraction]`),
 which supports SQLite's date functions. The new Entity path does not change legacy DAO/WebAPI bindings.
+Legacy date formatting also accepts fractional-second text, allowing existing queries to read values
+written through Entity.
 Mutable date/time fields have independent snapshots, including `Timestamp` nanoseconds.
 SQLite equality conditions compare stored text: newly written values use the canonical format above.
 Reading an older offset-bearing or differently formatted value does not rewrite it or make different

@@ -1,6 +1,7 @@
 package com.hibegin.common.dao.entity;
 
 import com.hibegin.common.dao.InMemoryDatabase;
+import com.hibegin.common.dao.ResultValueConvertUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -61,6 +62,8 @@ class EntityTemporalTest {
             assertEquals(event.visitedAt, reloaded.visitedAt);
             assertEquals(java.sql.Date.valueOf("2024-02-29"), reloaded.calendarDay);
             assertEquals(43L, reloaded.getVersion());
+            assertEquals(reloaded.startsAt.getTime(), ResultValueConvertUtils.parseDate(db.scalar("SELECT startsAt FROM event")),
+                    "Existing DAO formatting must also read new Entity values");
             assertNull(reloaded.getCreatedAt());
             assertEquals(Timestamp.from(CLOCK.instant()), reloaded.getUpdatedAt());
             assertEquals("2024", db.scalar(sqlite ? "SELECT strftime('%Y', calendarDay) FROM event"
