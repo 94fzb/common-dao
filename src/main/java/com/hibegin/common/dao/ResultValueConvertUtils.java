@@ -15,8 +15,13 @@ import java.util.Objects;
 
 public class ResultValueConvertUtils {
 
-    private static final DateTimeFormatter formatter = new DateTimeFormatterBuilder()
+    private static final DateTimeFormatter localDateTimeFormatter = new DateTimeFormatterBuilder()
             .appendPattern("yyyy-MM-dd HH:mm:ss")
+            .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
+            .toFormatter(Locale.getDefault());
+
+    private static final DateTimeFormatter formatter = new DateTimeFormatterBuilder()
+            .append(localDateTimeFormatter)
             .optionalStart()
             .appendPattern(" XXX")      // +08:00 格式时区
             .optionalEnd()
@@ -63,7 +68,7 @@ public class ResultValueConvertUtils {
                 return offsetDateTime.atZoneSameInstant(ZoneId.systemDefault()).toInstant().toEpochMilli();
             } else {
                 if (dateStr.contains(":")) {
-                    TemporalAccessor parsed = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").parse(dateStr);
+                    TemporalAccessor parsed = localDateTimeFormatter.parse(dateStr);
                     // 包含时间部分
                     LocalDateTime dt = LocalDateTime.from(parsed);
                     return dt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();

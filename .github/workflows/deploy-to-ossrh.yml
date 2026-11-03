@@ -58,7 +58,7 @@ jobs:
           COMMON_DAO_MYSQL_TEST_URL: jdbc:mysql://127.0.0.1:${{ job.services.mysql.ports[3306] }}/dao_test?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=LOCAL
           COMMON_DAO_MYSQL_TEST_USER: dao_test
           COMMON_DAO_MYSQL_TEST_PASSWORD: local-test-only
-        run: ./mvnw -B -ntp -Duser.timezone=UTC -Dtest=EntityTemporalTest,EntityMySqlTemporalTest,EntityWebApiTest test
+        run: ./mvnw -B -ntp -Duser.timezone=UTC -Dtest=EntityTemporalTest,EntityMySqlTemporalTest,EntityWebApiTest,ResultValueConvertUtilsTest test
       - name: Import signing key
         if: startsWith(github.ref, 'refs/tags/v')
         env:
