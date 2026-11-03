@@ -6,6 +6,8 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.hibegin.common.dao.entity.BaseEntity;
+import com.hibegin.common.dao.entity.Column;
+import com.hibegin.common.dao.entity.TemporalStorage;
 import com.hibegin.common.dao.entity.Entity;
 import com.hibegin.common.dao.entity.EntityRepository;
 import com.hibegin.common.dao.entity.OptimisticLockException;
@@ -27,6 +29,7 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -144,7 +147,7 @@ class EntityWebApiTest {
         try (java.sql.Statement statement = sqlite.createStatement()) {
             statement.execute("DROP TABLE IF EXISTS entry");
             statement.execute("CREATE TABLE entry (entryId INTEGER PRIMARY KEY AUTOINCREMENT,"
-                    + " createdAt INTEGER, updatedAt INTEGER, version INTEGER NOT NULL, title TEXT, body TEXT, visitedAt INTEGER)");
+                    + " createdAt DATETIME, updatedAt DATETIME, version INTEGER NOT NULL, title TEXT, body TEXT, visitedAt INTEGER)");
         }
         statements.clear();
         responseMode.set("normal");
@@ -156,7 +159,7 @@ class EntityWebApiTest {
         Entry entry = entry();
         repository.insert(entry);
         assertEquals(1L, entry.getId());
-        assertEquals(1234L, entry.getCreatedAt());
+        assertEquals(new Timestamp(1234), entry.getCreatedAt());
         assertEquals(1, statements.size());
         assertTrue(statements.get(0).endsWith("RETURNING CAST(`entryId` AS TEXT) AS `entryId`"));
         Entry loaded = repository.findById(entry.getId()).orElseThrow();
@@ -248,6 +251,73 @@ class EntityWebApiTest {
         assertEquals("body", repository.findById(entry.getId()).orElseThrow().body);
     }
 
+    @Test
+    void dateColumnsUseDateTimeTextAndPreservePrecisionThroughTheWorker() throws Exception {
+        try (java.sql.Statement statement = sqlite.createStatement()) {
+            statement.execute("CREATE TABLE calendar_entry (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    + " createdAt DATETIME, updatedAt DATETIME, version INTEGER NOT NULL, calendarDay DATE, publishedAt DATETIME)");
+            statement.execute("INSERT INTO calendar_entry(id,version,publishedAt) VALUES"
+                    + " (1,7,'2026-11-03 11:22:33.123456789 +0800')");
+        }
+        EntityRepository<CalendarEntry, Long> dates = new EntityRepository<>(CalendarEntry.class, source,
+                Clock.fixed(Instant.parse("2026-11-03T03:04:05.678Z"), ZoneOffset.UTC));
+        CalendarEntry legacy = dates.findById(1L).orElseThrow();
+        assertEquals(Instant.parse("2026-11-03T03:22:33.123456789Z"), legacy.publishedAt.toInstant());
+        assertNull(legacy.getCreatedAt());
+        CalendarEntry entry = new CalendarEntry();
+        entry.calendarDay = java.sql.Date.valueOf("2024-02-29");
+        entry.publishedAt = Timestamp.valueOf("2026-11-03 11:22:33.123456789");
+        statements.clear();
+        dates.insert(entry);
+        assertEquals(1, statements.size());
+        CalendarEntry loaded = dates.findById(entry.getId()).orElseThrow();
+        assertEquals(entry.getCreatedAt(), loaded.getCreatedAt());
+        assertEquals(entry.calendarDay, loaded.calendarDay);
+        assertEquals(entry.publishedAt, loaded.publishedAt);
+        assertEquals(1, dates.findMatching(Map.of("publishedAt", entry.publishedAt, "calendarDay", entry.calendarDay), 10).size());
+        try (java.sql.Statement statement = sqlite.createStatement();
+             ResultSet row = statement.executeQuery("SELECT typeof(createdAt),strftime('%Y',calendarDay),publishedAt"
+                     + " FROM calendar_entry WHERE id=" + entry.getId())) {
+            assertTrue(row.next());
+            assertEquals("text", row.getString(1));
+            assertEquals("2024", row.getString(2));
+            assertEquals("2026-11-03 11:22:33.123456789", row.getString(3));
+        }
+        loaded.publishedAt.setNanos(987654321);
+        statements.clear();
+        assertTrue(dates.update(loaded));
+        assertEquals(1, statements.size());
+        assertEquals(987654321, dates.findById(entry.getId()).orElseThrow().publishedAt.getNanos());
+        statements.clear();
+        assertFalse(dates.update(loaded));
+        assertTrue(statements.isEmpty());
+    }
+
+    @Test
+    void explicitlyMappedIntegerMetadataKeepsItsExactHistoricalValue() throws Exception {
+        long large = 9007199254740993L;
+        try (java.sql.Statement statement = sqlite.createStatement()) {
+            statement.execute("CREATE TABLE legacy_entry (id TEXT PRIMARY KEY, created_at INTEGER,"
+                    + " updated_at INTEGER, version INTEGER NOT NULL, title TEXT)");
+            statement.execute("INSERT INTO legacy_entry VALUES ('legacy'," + large + ",NULL,42,'before')");
+        }
+        EntityRepository<LegacyEntry, String> legacy = new EntityRepository<>(LegacyEntry.class, source,
+                Clock.fixed(Instant.ofEpochMilli(1234), ZoneOffset.UTC));
+        LegacyEntry entry = legacy.findById("legacy").orElseThrow();
+        assertEquals(large, entry.getCreatedAt().getTime());
+        assertEquals(1, legacy.findMatching(Map.of("createdAt", entry.getCreatedAt()), 1).size());
+        entry.title = "after";
+        legacy.update(entry);
+        LegacyEntry actual = legacy.findById("legacy").orElseThrow();
+        assertEquals(large, actual.getCreatedAt().getTime());
+        assertEquals(1234, actual.getUpdatedAt().getTime());
+        assertEquals(43L, actual.getVersion());
+        LegacyEntry fresh = new LegacyEntry();
+        fresh.setId("new");
+        legacy.insert(fresh);
+        assertEquals(1234, legacy.findById("new").orElseThrow().getCreatedAt().getTime());
+    }
+
     private Entry entry() {
         Entry entry = new Entry();
         entry.title = "initial";
@@ -259,6 +329,19 @@ class EntityWebApiTest {
     static class Entry extends BaseEntity<Long> {
         private String title;
         private String body;
+        @Column(temporalStorage = TemporalStorage.EPOCH_MILLIS)
         private Date visitedAt;
+    }
+
+    @Entity(generatedId = true)
+    static class CalendarEntry extends BaseEntity<Long> {
+        private java.sql.Date calendarDay;
+        private Timestamp publishedAt;
+    }
+
+    @Entity(createdAtColumn = "created_at", updatedAtColumn = "updated_at",
+            createdAtStorage = TemporalStorage.EPOCH_MILLIS, updatedAtStorage = TemporalStorage.EPOCH_MILLIS)
+    static class LegacyEntry extends BaseEntity<String> {
+        private String title;
     }
 }

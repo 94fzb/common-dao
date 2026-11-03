@@ -8,6 +8,7 @@ import java.lang.reflect.Type;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -78,7 +79,16 @@ final class EntityMapping {
                 }
                 Column column = field.getAnnotation(Column.class);
                 boolean primaryKey = current == BaseEntity.class && field.getName().equals("id");
-                String name = primaryKey ? entity.idColumn() : column == null ? field.getName() : column.value();
+                String name = primaryKey ? entity.idColumn()
+                        : column == null || column.value().isEmpty() ? field.getName() : column.value();
+                TemporalStorage storage = column == null ? TemporalStorage.NATIVE : column.temporalStorage();
+                if (current == BaseEntity.class && field.getName().equals("createdAt")) {
+                    name = entity.createdAtColumn();
+                    storage = entity.createdAtStorage();
+                } else if (current == BaseEntity.class && field.getName().equals("updatedAt")) {
+                    name = entity.updatedAtColumn();
+                    storage = entity.updatedAtStorage();
+                }
                 Class<?> valueType = primaryKey ? idType : field.getType();
                 if (!supported(valueType)) {
                     throw new IllegalArgumentException("Unsupported persistent field type: " + field
@@ -88,7 +98,10 @@ final class EntityMapping {
                     throw new IllegalArgumentException("Duplicate persistent field/column: " + field);
                 }
                 field.setAccessible(true);
-                fields.add(new Property(field, identifier(name), valueType));
+                if (storage == TemporalStorage.EPOCH_MILLIS && valueType != Date.class && valueType != Timestamp.class) {
+                    throw new IllegalArgumentException("EPOCH_MILLIS requires java.util.Date or java.sql.Timestamp: " + field);
+                }
+                fields.add(new Property(field, identifier(name), valueType, storage));
             }
         }
         properties = Collections.unmodifiableList(fields);
@@ -114,7 +127,8 @@ final class EntityMapping {
         // SQLite/D1 JavaScript bridges cannot represent every int64 as a JSON number.
         // Read large numeric values as text before they pass through JavaScript.
         boolean exactNumber = property.type == Long.class || property.type == long.class
-                || property.type == BigInteger.class || property.type == BigDecimal.class || property.type == Date.class;
+                || property.type == BigInteger.class || property.type == BigDecimal.class
+                || property.storage == TemporalStorage.EPOCH_MILLIS;
         return webApi && exactNumber ? "CAST(" + column + " AS TEXT) AS " + column : column;
     }
 
@@ -194,7 +208,7 @@ final class EntityMapping {
         return Arrays.asList(String.class, Boolean.class, boolean.class, Byte.class, byte.class,
                 Short.class, short.class, Integer.class, int.class, Long.class, long.class,
                 Float.class, float.class, Double.class, double.class, BigDecimal.class, BigInteger.class,
-                Date.class, byte[].class).contains(type);
+                Date.class, Timestamp.class, java.sql.Date.class, byte[].class).contains(type);
     }
 
     static Object convert(Object value, Class<?> type) {
@@ -204,9 +218,7 @@ final class EntityMapping {
         }
         if (type == String.class && value instanceof String) { return value; }
         if (type == byte[].class && value instanceof byte[]) { return ((byte[]) value).clone(); }
-        if (type == Date.class) {
-            return new Date(value instanceof Date ? ((Date) value).getTime() : decimal(value).longValueExact());
-        }
+        if (TemporalValues.supports(type)) { return TemporalValues.convert(value, type); }
         if (type == Boolean.class || type == boolean.class) {
             if (value instanceof Boolean) { return value; }
             BigDecimal number = decimal(value);
@@ -242,25 +254,37 @@ final class EntityMapping {
     }
 
     static Object databaseValue(Object value) {
-        if (value instanceof Date) { return ((Date) value).getTime(); }
         if (value instanceof byte[]) { return ((byte[]) value).clone(); }
-        return value;
+        return TemporalValues.jdbcValue(value);
     }
 
     static final class Property {
         final Field field;
         final String column;
         final Class<?> type;
+        final TemporalStorage storage;
 
-        Property(Field field, String column, Class<?> type) {
+        Property(Field field, String column, Class<?> type, TemporalStorage storage) {
             this.field = field;
             this.column = column;
             this.type = type;
+            this.storage = storage;
+        }
+
+        Object parameter(Object value) {
+            Object converted = convert(value, type);
+            if (converted != null && storage == TemporalStorage.EPOCH_MILLIS) {
+                if (converted instanceof Timestamp && ((Timestamp) converted).getNanos() % 1_000_000 != 0) {
+                    throw new IllegalArgumentException("EPOCH_MILLIS cannot preserve sub-millisecond precision: " + field);
+                }
+                return ((Date) converted).getTime();
+            }
+            return databaseValue(converted);
         }
 
         Object read(BaseEntity<?> entity) {
             try {
-                return databaseValue(convert(field.get(entity), type));
+                return parameter(field.get(entity));
             } catch (IllegalAccessException e) {
                 throw new IllegalStateException(e);
             }
@@ -268,7 +292,11 @@ final class EntityMapping {
 
         void write(BaseEntity<?> entity, Object value) {
             try {
-                field.set(entity, convert(value, type));
+                Object mapped = value;
+                if (value != null && storage == TemporalStorage.EPOCH_MILLIS) {
+                    mapped = new Timestamp(decimal(value).longValueExact());
+                }
+                field.set(entity, convert(mapped, type));
             } catch (IllegalAccessException e) {
                 throw new IllegalStateException(e);
             }

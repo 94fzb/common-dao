@@ -15,6 +15,7 @@ import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -38,9 +39,9 @@ class EntityRepositoryTest {
     @BeforeEach
     void open() throws Exception {
         database = InMemoryDatabase.open(InMemoryDatabase.h2Properties(UUID.randomUUID().toString()), false);
-        database.execute("CREATE TABLE note (id varchar(100) primary key, createdAt bigint, updatedAt bigint,"
+        database.execute("CREATE TABLE note (id varchar(100) primary key, createdAt datetime(3), updatedAt datetime(3),"
                 + " version bigint not null, title varchar(100), body varchar(500), ownerId int,"
-                + " visitedAt bigint, payload varbinary(100), enabled boolean, amount decimal(30,4))");
+                + " visitedAt datetime(3), payload varbinary(100), enabled boolean, amount decimal(30,4))");
         runner = new CountingRunner(database.dataSource());
         source = (DataSourceWrapper) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{DataSourceWrapper.class},
                 (proxy, method, args) -> {
@@ -61,8 +62,8 @@ class EntityRepositoryTest {
         note.amount = new BigDecimal("1234567890123456.1234");
         repository.insert(note);
         assertEquals(0L, note.getVersion());
-        assertEquals(1000L, note.getCreatedAt());
-        assertEquals(1000L, note.getUpdatedAt());
+        assertEquals(new Timestamp(1000), note.getCreatedAt());
+        assertEquals(new Timestamp(1000), note.getUpdatedAt());
         assertEquals(1, runner.statements.size());
 
         Note loaded = repository.findById("one").orElseThrow();
@@ -72,8 +73,8 @@ class EntityRepositoryTest {
         runner.statements.clear();
         assertTrue(new EntityRepository<>(Note.class, source, UPDATE_TIME).update(loaded));
         assertEquals(1, runner.statements.size());
-        assertEquals(1000L, loaded.getCreatedAt());
-        assertEquals(2000L, loaded.getUpdatedAt());
+        assertEquals(new Timestamp(1000), loaded.getCreatedAt());
+        assertEquals(new Timestamp(2000), loaded.getUpdatedAt());
         assertEquals(1L, loaded.getVersion());
         Map<String, Object> persisted = database.queryOne("SELECT * FROM note WHERE id=?", "one");
         assertNull(persisted.get("body"));
@@ -83,7 +84,7 @@ class EntityRepositoryTest {
         runner.statements.clear();
         assertFalse(repository.update(loaded));
         assertTrue(runner.statements.isEmpty(), "No-op must not read or write the database");
-        assertEquals(2000L, loaded.getUpdatedAt());
+        assertEquals(new Timestamp(2000), loaded.getUpdatedAt());
         assertEquals(1L, loaded.getVersion());
     }
 
@@ -98,7 +99,7 @@ class EntityRepositoryTest {
         stale.title = "loser";
         assertThrows(OptimisticLockException.class, () -> repository.update(stale));
         assertEquals(0L, stale.getVersion());
-        assertEquals(1000L, stale.getUpdatedAt());
+        assertEquals(new Timestamp(1000), stale.getUpdatedAt());
         assertThrows(IllegalStateException.class, () -> repository.update(stale));
         assertThrows(OptimisticLockException.class, () -> repository.delete(staleDelete));
         assertEquals("winner", database.scalar("SELECT title FROM note WHERE id='one'"));
@@ -123,7 +124,7 @@ class EntityRepositoryTest {
         assertEquals("external body", database.scalar("SELECT body FROM note WHERE id='old'"));
         assertNull(database.scalar("SELECT createdAt FROM note WHERE id='old'"));
         assertEquals(43L, note.getVersion());
-        assertEquals(1000L, note.getUpdatedAt());
+        assertEquals(new Timestamp(1000), note.getUpdatedAt());
     }
 
     @Test
@@ -185,7 +186,7 @@ class EntityRepositoryTest {
 
     @Test
     void generatedLegacyPrimaryKeyIsReturnedByTheInsertAndGenericInheritanceWorks() throws Exception {
-        database.execute("CREATE TABLE log (logId int auto_increment primary key, createdAt bigint, updatedAt bigint,"
+        database.execute("CREATE TABLE log (logId int auto_increment primary key, createdAt datetime(3), updatedAt datetime(3),"
                 + " version bigint not null, title varchar(100), plain_content varchar(100))");
         EntityRepository<Log, Integer> logs = new EntityRepository<>(Log.class, source, INSERT_TIME);
         Log log = new Log();
@@ -242,7 +243,7 @@ class EntityRepositoryTest {
         assertThrows(SQLException.class, () -> missing.findById(1L));
         assertEquals(1, runner.statements.size());
         assertTrue(runner.statements.get(0).startsWith("SELECT"));
-        database.execute("CREATE TABLE missing (id bigint primary key, createdAt bigint, updatedAt bigint)");
+        database.execute("CREATE TABLE missing (id bigint primary key, createdAt datetime(3), updatedAt datetime(3))");
         assertThrows(SQLException.class, () -> missing.findById(1L));
         database.execute("ALTER TABLE missing ADD version bigint");
         database.execute("INSERT INTO missing(id) VALUES (1)");

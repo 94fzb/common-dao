@@ -49,9 +49,10 @@ Mapping rules:
 - Fields keep their Java names unless `@Column` overrides them. Private and inherited fields are supported.
 - The Java key is always `id`; `idColumn` maps it to an existing primary key such as `logId` or `userId`.
 - IDs can be `String`, `Integer` or `Long`. Assigned IDs are the default. Set `generatedId = true` for a database-generated numeric ID, leaving `id` null before insertion.
-- `BaseEntity` defines `createdAt`, `updatedAt` and `version` as `Long`. Times are UTC epoch milliseconds. Historical times may remain null; loaded IDs and versions must be non-null, with versions non-negative.
+- `BaseEntity` defines `createdAt` and `updatedAt` as `java.sql.Timestamp`, and `version` as `Long`. Times use SQL date/time storage by default. Historical times may remain null; loaded IDs and versions must be non-null, with versions non-negative. Metadata timestamp getters return defensive copies.
+- `createdAtColumn` and `updatedAtColumn` on `@Entity` map inherited times to existing column names.
 - Static, synthetic and Java `transient` fields are excluded. Field shadowing, duplicate columns, final persistent fields and invalid SQL identifiers are rejected.
-- Scalar types: strings, booleans, numeric primitives/wrappers, `BigInteger`, `BigDecimal`, `java.util.Date` and JDBC `byte[]`. Date fields use epoch milliseconds, **not** SQL DATETIME conversion. Nullable columns should use reference types. Encode JSON and other structured values explicitly as strings; arbitrary objects, relationships and collections are not mapped.
+- Scalar types: strings, booleans, numeric primitives/wrappers, `BigInteger`, `BigDecimal`, `java.util.Date`, `java.sql.Date`, `java.sql.Timestamp` and JDBC `byte[]`. Nullable columns should use reference types. Encode JSON and other structured values explicitly as strings; arbitrary objects, relationships and collections are not mapped.
 
 Schema changes remain explicit. Supply the table and all mapped columns through installation SQL
 and versioned migrations before using a repository. No operation creates, inspects or repairs the schema.
@@ -59,10 +60,61 @@ Preserve existing version values when migrating; initialize missing versions exp
 historical times null. For example, the common columns for a newly managed table can be:
 
 ```sql
-createdAt BIGINT NULL,
-updatedAt BIGINT NULL,
+createdAt DATETIME(3) NULL,
+updatedAt DATETIME(3) NULL,
 version BIGINT NOT NULL DEFAULT 0
 ```
+
+## Date and time columns
+
+`java.sql.Date` maps a calendar date to SQL `DATE`. `java.sql.Timestamp` maps a full date/time to
+`DATETIME` or `TIMESTAMP`, retaining the fractional seconds supported by the destination column.
+`java.util.Date` also uses date/time storage, with its millisecond precision. Choose the database column
+precision explicitly: for example MySQL `DATETIME(3)` for milliseconds or `DATETIME(6)` for microseconds.
+The repository does not increase a column's precision or read back values rounded by the database.
+
+JDBC receives typed date/time parameters. SQLite has no dedicated temporal storage class, so SQLite
+JDBC and SQLite/D1 WebAPI receive date/time text (`yyyy-MM-dd` or `yyyy-MM-dd HH:mm:ss[.fraction]`),
+which supports SQLite's date functions. The new Entity path does not change legacy DAO/WebAPI bindings.
+Mutable date/time fields have independent snapshots, including `Timestamp` nanoseconds.
+SQLite equality conditions compare stored text: newly written values use the canonical format above.
+Reading an older offset-bearing or differently formatted value does not rewrite it or make different
+text representations equal; use an explicit domain query when comparing across historical formats.
+
+Unzoned SQL values retain local calendar-time semantics, using the JVM's configured time zone when a
+`Timestamp` is converted to/from an instant. Existing offset-bearing WebAPI strings are read as the
+instant specified by their offset. No existing local time is implicitly reinterpreted as UTC. Configure
+the application and JDBC connection time zones consistently; SQL `TIMESTAMP` session conversions remain
+the JDBC driver's/database's responsibility. Managed times use the repository's application `Clock`;
+there is no extra database clock query, default, or trigger.
+
+Existing integer time columns are opt-in, without a schema conversion:
+
+```java
+@Entity(createdAtColumn = "created_at", createdAtStorage = TemporalStorage.EPOCH_MILLIS)
+class Token extends BaseEntity<String> {
+    @Column(temporalStorage = TemporalStorage.EPOCH_MILLIS)
+    private java.sql.Timestamp expiresAt;
+}
+```
+
+Here `created_at` and `expiresAt` remain `BIGINT`, while `updatedAt` uses date/time storage. Set
+`updatedAtStorage` separately if that column also uses integers. `EPOCH_MILLIS` is valid only for
+`java.util.Date` and `java.sql.Timestamp`; sub-millisecond Timestamp values are rejected instead of
+silently truncated. Numeric Java fields such as `Long` continue to map directly to numeric columns.
+Malformed dates and numeric values read through native date/time mappings fail explicitly.
+
+### Updating Entity consumers from 1.2.0
+
+1.2.1 corrects the new Entity API's date/time contract: `getCreatedAt()` and `getUpdatedAt()` return
+`Timestamp` instead of `Long`, and date fields no longer default to integer storage. Recompile Entity
+consumers; use `.getTime()` only where an API boundary specifically needs epoch milliseconds. Existing
+`DAO` and `BasePageableDAO` consumers keep their API and storage behavior.
+
+For tables already created with the 1.2.0 integer layout, explicitly set `createdAtStorage`,
+`updatedAtStorage`, and each integer-backed date field to `EPOCH_MILLIS`. For native date/time columns,
+use the default mapping. No automatic DDL or data conversion is performed; any deliberate column type
+change requires a separately reviewed versioned migration.
 
 ## Writes, ownership and failures
 
