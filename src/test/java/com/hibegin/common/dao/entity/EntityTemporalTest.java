@@ -38,6 +38,42 @@ class EntityTemporalTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
+    void generatedEntityAndDirectSqlShareTheCallerTransaction(boolean sqlite) throws Exception {
+        try (InMemoryDatabase db = open(sqlite)) {
+            db.execute("CREATE TABLE transaction_item (id "
+                    + (sqlite ? "integer primary key autoincrement" : "bigint auto_increment primary key")
+                    + ", createdAt datetime(3), updatedAt datetime(3), version bigint not null, title varchar(100))");
+            EntityRepository<TransactionItem, Long> outside = new EntityRepository<>(TransactionItem.class, db.dataSource());
+            try (var connection = db.dataSource().getConnection()) {
+                connection.setAutoCommit(false);
+                try (EntitySession session = new EntitySession(db.dataSource(), connection)) {
+                    EntityRepository<TransactionItem, Long> inside = session.repository(TransactionItem.class);
+                    TransactionItem item = new TransactionItem();
+                    item.title = "uncommitted";
+                    inside.insert(item);
+                    assertNotNull(item.getId());
+                    new org.apache.commons.dbutils.QueryRunner().update(connection,
+                            "UPDATE transaction_item SET title=? WHERE id=?", "direct SQL", item.getId());
+                    TransactionItem loaded = inside.findById(item.getId()).orElseThrow();
+                    assertEquals("direct SQL", loaded.title);
+                    loaded.title = "entity update";
+                    assertTrue(inside.update(loaded));
+                    assertTrue(outside.findById(item.getId()).isEmpty(), "Neither insert nor update may commit");
+                    connection.rollback();
+                }
+                assertFalse(connection.isClosed());
+            }
+            assertTrue(outside.select("ORDER BY id").isEmpty(), "Rollback must include Entity and direct SQL writes");
+        }
+    }
+
+    @Entity(table = "transaction_item", generatedId = true)
+    static class TransactionItem extends BaseEntity<Long> {
+        String title;
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     void sqlDateAndDateTimeRetainTheirDatabaseMeaningAndMutablePrecision(boolean sqlite) throws Exception {
         try (InMemoryDatabase db = open(sqlite)) {
             db.execute("CREATE TABLE event (id varchar(20) primary key, createdAt datetime(9), updatedAt datetime(9),"

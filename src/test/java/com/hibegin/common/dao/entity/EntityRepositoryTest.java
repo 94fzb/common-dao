@@ -56,6 +56,60 @@ class EntityRepositoryTest {
     void close() { database.close(); }
 
     @Test
+    void selectedRowsAreCompleteAndTrackedWithRangeOrderingAndBoundValues() throws Exception {
+        repository.insert(note("one"));
+        repository.insert(note("two"));
+        List<Note> rows = repository.select("WHERE id>? ORDER BY id DESC LIMIT ?", "", 1);
+        assertEquals("two", rows.get(0).getId());
+        rows.get(0).title = "selected update";
+        repository.update(rows.get(0));
+        assertEquals("selected update", repository.findById("two").orElseThrow().title);
+        assertTrue(repository.select("WHERE id=?", "' OR 1=1 --").isEmpty());
+    }
+
+    @Test
+    void callerTransactionRollsBackAndSessionEntitiesCannotEscapeTheirScope() throws Exception {
+        Note inside;
+        try (Connection connection = source.getConnection()) {
+            connection.setAutoCommit(false);
+            try (EntitySession session = new EntitySession(source, connection)) {
+                EntityRepository<Note, String> bound = session.repository(Note.class);
+                bound.insert(note("rollback"));
+                inside = bound.findById("rollback").orElseThrow();
+                inside.title = "still uncommitted";
+                session.<Note, String>repository(Note.class).update(inside);
+                assertTrue(repository.findById("rollback").isEmpty(), "Repository must not commit the caller's transaction");
+                assertThrows(IllegalStateException.class, () -> repository.update(inside));
+                connection.rollback();
+            }
+            assertFalse(connection.isClosed(), "Scope must not close a caller-owned connection");
+        }
+        assertTrue(repository.findById("rollback").isEmpty());
+        assertThrows(IllegalStateException.class, () -> repository.update(inside));
+    }
+
+    @Test
+    void generatedKeysUseTheCallerConnectionWithoutCommitting() throws Exception {
+        database.execute("CREATE TABLE log (logId bigint auto_increment primary key, createdAt datetime(3),"
+                + " updatedAt datetime(3), version bigint not null, title varchar(100), plain_content varchar(500))");
+        try (Connection connection = source.getConnection()) {
+            connection.setAutoCommit(false);
+            EntitySession session = new EntitySession(source, connection);
+            EntityRepository<Log, Integer> bound = session.repository(Log.class);
+            Log log = new Log();
+            log.title = "temporary";
+            bound.insert(log);
+            assertNotNull(log.getId());
+            assertEquals("temporary", bound.findById(log.getId()).orElseThrow().title);
+            connection.rollback();
+            session.close();
+            assertThrows(IllegalStateException.class, () -> bound.findById(log.getId()));
+            assertThrows(IllegalStateException.class, () -> bound.insert(new Log()));
+        }
+        assertEquals(0, ((Number) database.scalar("SELECT count(*) FROM log")).intValue());
+    }
+
+    @Test
     void insertAndUpdatePersistNullsAndManageTimesWithoutExtraQueries() throws Exception {
         Note note = note("one");
         note.body = "will be cleared";

@@ -121,7 +121,7 @@ change requires a separately reviewed versioned migration.
 ## Writes, ownership and failures
 
 `update` and `delete` accept only entities loaded or successfully inserted through the **same explicit
-data source instance**. Repository instances may differ. Do not deserialize a request into an Entity
+data source instance**, or the same `EntitySession` when bound to a transaction. Repository instances may differ. Do not deserialize a request into an Entity
 and update it directly: load the object, authorize the operation, and apply the requested changes.
 SQL projections stay in the existing DTO/query APIs. `findMatching(conditions, limit)` returns complete
 entities, uses equality conditions keyed by Java field name, and requires a limit from 1 to 1000.
@@ -141,16 +141,51 @@ repository.delete(entity, Map.of("ownerId", currentUserId));
 
 These predicates supplement application authorization; the library has no knowledge of users or permissions.
 A no-op update issues no SQL, so it does not revalidate predicates or the stored version.
-There is no implicit read, retry, upsert, flush, identity cache, cascade or multi-operation transaction.
+There is no implicit read, retry, upsert, flush, identity cache or cascade. Multi-operation JDBC transactions require an explicit caller-owned `EntitySession`.
 Raw SQL is not rewritten: all writers of a migrated table must deliberately maintain the same version
-contract, including counters and background jobs. A successful write is one database statement; JDBC
-generated-key insertion commits on the same connection that returned the key.
+contract, including counters and background jobs. A successful write is one database statement; outside
+an `EntitySession`, JDBC generated-key insertion commits on the same connection that returned the key.
 
 After any failed write, the entity cannot be reused for persistence. In-memory ID/time/version metadata
 advances only after a confirmed success. Reload and reconcile before deciding what to do next: an HTTP
 or connection failure may happen **after** the database committed. For an uncertain generated-ID insert,
 reconcile using a business key; there is no automatic replay or exactly-once guarantee. Entity tracking
 is transient and excluded by Gson; still use dedicated DTOs at API boundaries.
+
+## Repository queries and transactions
+
+`select("WHERE enabled=? ORDER BY id DESC LIMIT ?", true, 20)` returns complete tracked entities.
+The repository supplies the mapped table and select list, including WebAPI numeric precision casts.
+SQL suffixes belong to repository code; bind external values as parameters. Apply suitable limits
+when reading lists. Use a DTO for partial rows and aggregate results. `RowProjection.map(row, Dto.class)`
+maps read-only query results, preserving SQL date values and case-insensitive aliases; it rejects
+Entity and Map targets. Missing fields retain their DTO defaults, and SQL NULL leaves primitive
+fields at their defaults. Register the DTO's constructor and fields for Native Image.
+
+To share a JDBC transaction, bind repositories to an explicit scope:
+
+```java
+try (Connection connection = dataSource.getConnection()) {
+    connection.setAutoCommit(false);
+    try (EntitySession session = new EntitySession(dataSource, connection)) {
+        EntityRepository<Log, Integer> logs = session.repository(Log.class);
+        Log log = logs.findById(id).orElseThrow();
+        log.setTitle("Revised article");
+        logs.update(log);
+        // Other repositories and parameterized SQL use the same connection here.
+        connection.commit();
+    } catch (SQLException | RuntimeException failure) {
+        connection.rollback();
+        throw failure;
+    }
+}
+```
+
+The caller owns commit, rollback and connection close. A session never changes connection settings
+or commits an update; it uses DbUtils directly because a legacy QueryRunner may commit internally.
+Close the scope when the transaction ends. Tracked objects cannot be written through another scope
+or an ordinary repository; reload them in the new transaction. WebAPI has no JDBC session support;
+retain atomic conditional statements for operations that must complete together.
 
 ## JDBC and WebAPI
 

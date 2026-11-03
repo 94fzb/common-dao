@@ -30,14 +30,22 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
     private final EntityMapping mapping;
     private final Clock clock;
     private final boolean textDates;
+    private final EntitySession session;
 
     public EntityRepository(Class<E> type, DataSourceWrapper source) {
         this(type, source, Clock.systemUTC());
     }
 
     public EntityRepository(Class<E> type, DataSourceWrapper source, Clock clock) {
+        this(type, source, clock, null);
+    }
+
+    EntityRepository(Class<E> type, DataSourceWrapper source, Clock clock, EntitySession session) {
+        this.session = session;
         this.source = Objects.requireNonNull(source, "source");
-        this.runner = Objects.requireNonNull(source.getQueryRunner(), "queryRunner");
+        // Legacy CustomQueryRunner commits each update, even when given a connection. A bound
+        // transaction must use DbUtils directly so only the caller can commit or roll it back.
+        this.runner = session == null ? Objects.requireNonNull(source.getQueryRunner(), "queryRunner") : new QueryRunner();
         this.mapping = EntityMapping.of(type);
         this.clock = Objects.requireNonNull(clock, "clock");
         this.textDates = source.isWebApi()
@@ -64,12 +72,22 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
         List<Object> params = new ArrayList<>();
         String where = conditions(conditions, params);
         params.add(limit);
-        String sql = "SELECT " + mapping.columns(source.isWebApi()) + " FROM " + table() + " WHERE 1=1" + where
-                + " ORDER BY " + column(mapping.id) + " LIMIT ?";
+        return select("WHERE 1=1" + where + " ORDER BY " + column(mapping.id) + " LIMIT ?", params.toArray());
+    }
+
+    /**
+     * Complete, tracked rows with a repository-owned SQL suffix (WHERE/ORDER BY/LIMIT).
+     * Bind all external values; never accept SQL fragments from an untrusted caller. The mapped
+     * table and complete select list are supplied here, including WebAPI exact-number handling.
+     */
+    public List<E> select(String clauses, Object... params) throws SQLException {
+        requireActive();
+        Objects.requireNonNull(clauses, "clauses");
+        String sql = "SELECT " + mapping.columns(source.isWebApi()) + " FROM " + table() + " " + clauses;
         List<E> result = new ArrayList<>();
-        for (Map<String, Object> row : rows(sql, params.toArray())) {
+        for (Map<String, Object> row : rows(sql, params)) {
             @SuppressWarnings("unchecked") E entity = (E) mapping.hydrate(row);
-            entity.persistenceState = new EntityState(source, mapping.snapshot(entity));
+            entity.persistenceState = new EntityState(context(), mapping.snapshot(entity));
             result.add(entity);
         }
         return result;
@@ -77,6 +95,7 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
 
     /** Inserts a new entity, setting both times and version=0 only after a confirmed write. */
     public E insert(E entity) throws SQLException {
+        requireActive();
         Object[] values = mapping.snapshot(entity);
         if (entity.persistenceState != null || entity.getVersion() != null
                 || entity.getCreatedAt() != null || entity.getUpdatedAt() != null) {
@@ -191,9 +210,10 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
     }
 
     private Object[] tracked(E entity) {
+        requireActive();
         Object[] current = mapping.snapshot(entity);
         EntityState state = entity.persistenceState;
-        if (state == null || !state.valid || state.source != source) {
+        if (state == null || !state.valid || state.source != context()) {
             throw new IllegalStateException("Entity must be loaded from this data source; reload after a failed write");
         }
         for (int i = 0; i < current.length; i++) {
@@ -212,11 +232,11 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
         for (int i = 0; i < values.length; i++) {
             if (managed(i)) { mapping.properties.get(i).write(entity, values[i]); }
         }
-        entity.persistenceState = new EntityState(source, values);
+        entity.persistenceState = new EntityState(context(), values);
     }
 
     private void invalidate(E entity, Object[] values) {
-        entity.persistenceState = new EntityState(source, values);
+        entity.persistenceState = new EntityState(context(), values);
         entity.persistenceState.valid = false;
     }
 
@@ -228,13 +248,21 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
     private String table() { return EntityMapping.quote(mapping.table); }
     private String column(int index) { return EntityMapping.quote(mapping.properties.get(index).column); }
 
+    private Object context() { return session == null ? source : session; }
+
+    private void requireActive() {
+        if (session != null) session.requireActive();
+    }
+
     private int write(String sql, Object[] params) throws SQLException {
         params = parameters(params);
+        if (session != null) return runner.update(session.connection, sql, params);
         return source.isWebApi() ? ((WebApiQueryRunner) runner).updateEntity(sql, params) : runner.update(sql, params);
     }
 
     private List<Map<String, Object>> rows(String sql, Object[] params) throws SQLException {
         params = parameters(params);
+        if (session != null) return runner.query(session.connection, sql, new MapListHandler(), params);
         return source.isWebApi() ? ((WebApiQueryRunner) runner).queryEntityRows(sql, params)
                 : runner.query(sql, new MapListHandler(), params);
     }
@@ -242,6 +270,14 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
     private Object insertGenerated(String sql, Object[] params) throws SQLException {
         Object[] bound = parameters(params);
         EntityMapping.Property key = mapping.properties.get(mapping.id);
+        if (session != null) {
+            return runner.insert(session.connection, sql, rs -> {
+                if (!rs.next()) throw new SQLException("JDBC did not return a generated key");
+                Object id = generatedKey(rs.getObject(1), key.type);
+                if (rs.next()) throw new SQLException("JDBC returned multiple generated keys");
+                return id;
+            }, bound);
+        }
         if (source.isWebApi()) {
             List<Map<String, Object>> result = rows(sql + " RETURNING " + mapping.selectColumn(key, true), bound);
             if (result.size() != 1) { throw new SQLException("Generated insert requires exactly one returned key"); }
