@@ -60,6 +60,65 @@ class EntityMySqlTemporalTest {
         }
     }
 
+    @Test
+    void conditionalWritesRetainGeneratedKeysPermissionsMetadataAndCallerRollback() throws Exception {
+        Properties properties = new Properties();
+        properties.setProperty("driverClass", "com.mysql.cj.jdbc.Driver");
+        properties.setProperty("jdbcUrl", System.getenv("COMMON_DAO_MYSQL_TEST_URL"));
+        properties.setProperty("user", System.getenv("COMMON_DAO_MYSQL_TEST_USER"));
+        properties.setProperty("password", System.getenv("COMMON_DAO_MYSQL_TEST_PASSWORD"));
+        try (InMemoryDatabase db = InMemoryDatabase.open(properties, false)) {
+            db.execute("CREATE TABLE conditional_mysql (siteId bigint auto_increment primary key,"
+                    + " createdAt datetime(3), updatedAt datetime(3), version bigint not null,"
+                    + " name varchar(100) unique, value text, remark varchar(100))");
+            try {
+                EntityRepository<Setting, Long> repository = new EntityRepository<>(Setting.class, db.dataSource());
+                Setting row = new Setting();
+                row.name = "task"; row.value = "payload"; row.remark = "revision-1";
+                assertFalse(repository.insertWhen(row, "?=?", 1, 2));
+                assertNull(row.getId());
+                assertTrue(repository.insertWhen(row, "NOT EXISTS (SELECT 1 FROM conditional_mysql WHERE name=?)", row.name));
+                assertNotNull(row.getId());
+                Setting duplicate = new Setting(); duplicate.name = row.name;
+                assertFalse(repository.insertWhen(duplicate, "NOT EXISTS (SELECT 1 FROM conditional_mysql WHERE name=?)", row.name));
+                assertNull(duplicate.getId());
+                Setting patch = new Setting(); patch.remark = "revision-2";
+                assertEquals(0, repository.updateWhere(patch, java.util.List.of("remark"), "name=? AND remark=?", row.name, "stale"));
+                assertEquals(1, repository.updateWhere(patch, java.util.List.of("remark"), "name=? AND remark=?"
+                        + " AND (SELECT reference_count FROM (SELECT count(*) AS reference_count FROM conditional_mysql WHERE name<>?) AS refs)=0",
+                        row.name, row.remark, row.name));
+                Setting actual = repository.findById(row.getId()).orElseThrow();
+                assertEquals("payload", actual.value);
+                assertEquals("revision-2", actual.remark);
+                assertEquals(row.getCreatedAt(), actual.getCreatedAt());
+                assertEquals(1L, actual.getVersion());
+                try (var connection = db.dataSource().getConnection()) {
+                    connection.setAutoCommit(false);
+                    try (var session = new EntitySession(db.dataSource(), connection)) {
+                        EntityRepository<Setting, Long> bound = session.repository(Setting.class);
+                        Setting temporary = new Setting(); temporary.name = "temporary";
+                        assertTrue(bound.insertWhen(temporary, "EXISTS (SELECT 1 FROM conditional_mysql WHERE name=?)", row.name));
+                        assertEquals(1, bound.deleteWhere("name=?", row.name));
+                        assertEquals(1, bound.updateWhere(patch, java.util.List.of("remark"), "name=?", temporary.name));
+                        connection.rollback();
+                    }
+                }
+                assertEquals(1, repository.select("ORDER BY siteId").size());
+                assertEquals(1L, repository.findById(row.getId()).orElseThrow().getVersion());
+                assertEquals(1, repository.deleteWhere("name=? AND remark=?", row.name, "revision-2"));
+            } finally {
+                db.execute("DROP TABLE conditional_mysql");
+            }
+        }
+    }
+
+    @Entity(table = "conditional_mysql", idColumn = "siteId", generatedId = true)
+    static class Setting extends BaseEntity<Long> {
+        String name;
+        String value;
+        String remark;
+    }
+
     @Entity(table = "event_mysql", generatedId = true)
     static class Event extends BaseEntity<Long> {
         java.sql.Date calendarDay;

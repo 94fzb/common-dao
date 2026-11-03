@@ -152,6 +152,35 @@ or connection failure may happen **after** the database committed. For an uncert
 reconcile using a business key; there is no automatic replay or exactly-once guarantee. Entity tracking
 is transient and excluded by Gson; still use dedicated DTOs at API boundaries.
 
+## Explicit conditional writes
+
+For single-statement authorization, compare-and-set state transitions and bounded bulk operations,
+use `insertWhen`, `updateWhere` and `deleteWhere`. These advanced APIs accept **repository-owned** SQL
+predicates (without `WHERE`); bind all external values. They do not parse permissions or add an implicit
+loaded-version check. Regular `update(entity)` and `delete(entity)` keep their optimistic-lock contract.
+
+```java
+boolean inserted = repository.insertWhen(newLog, "EXISTS (SELECT 1 FROM user WHERE userId=? AND enabled=?)", actorId, true);
+Log patch = new Log();
+patch.setTitle("Corrected title");
+int changed = repository.updateWhere(patch, List.of("title"), "logId=? AND version=?", id, expectedVersion);
+int deleted = repository.deleteWhere("logId=? AND version=?", id, expectedVersion);
+```
+
+Conditional inserts still populate ID, times and version only on success. A false result confirms no
+row was inserted and leaves the entity new; invalid/missing acknowledgements throw instead. Generated
+keys come from the same statement/connection, with no extra SELECT, including SQLite zero-row inserts.
+
+`updateWhere` requires a fresh template with no persisted metadata and an explicit, nonempty list of
+Java field names. Only those fields are assigned; null explicitly clears a selected field. ID and
+managed metadata cannot be assigned. Each matching row gets an updated timestamp and increments its
+version; null, negative and maximum versions do not match. The template is not hydrated or tracked.
+These calls return affected row counts, including zero for a predicate miss. Reload old tracked entities
+after bulk updates. On an uncertain partial write, the template cannot be reused; reconcile the result
+before creating another write. Conditional delete has no tracked object to invalidate; the caller must
+likewise reconcile errors before retrying. No retries, preliminary reads or automatic DDL are introduced.
+JDBC `EntitySession` operations stay inside the caller's transaction.
+
 ## Repository queries and transactions
 
 `select("WHERE enabled=? ORDER BY id DESC LIMIT ?", true, 20)` returns complete tracked entities.
