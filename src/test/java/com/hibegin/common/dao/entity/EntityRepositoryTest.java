@@ -327,6 +327,59 @@ class EntityRepositoryTest {
         assertFalse(config.contains("uiOnly"));
     }
 
+    @Test
+    void conditionalWritesRetainCasAndPermissionsWithoutReadingOrReplacingOtherFields() throws Exception {
+        Note row = note("conditional");
+        row.body = "large retained body";
+        assertFalse(repository.insertWhen(row, "?=?", 7, 8));
+        assertNull(row.getVersion());
+        assertNull(row.getCreatedAt());
+        assertTrue(repository.insertWhen(row, "?=?", 7, 7));
+        Note patch = new Note();
+        patch.title = null;
+        var writer = new EntityRepository<>(Note.class, source, UPDATE_TIME);
+        runner.statements.clear();
+        assertEquals(0, writer.updateWhere(patch, List.of("title"), "id=? AND title=?", row.getId(), "stale"));
+        assertEquals(1, writer.updateWhere(patch, List.of("title"), "id=? AND title=?", row.getId(), "initial"));
+        assertEquals(2, runner.statements.size());
+        assertTrue(runner.statements.stream().allMatch(sql -> sql.startsWith("UPDATE")));
+        Note actual = repository.findById(row.getId()).orElseThrow();
+        assertNull(actual.title);
+        assertEquals("large retained body", actual.body);
+        assertEquals(new Timestamp(1000), actual.getCreatedAt());
+        assertEquals(new Timestamp(2000), actual.getUpdatedAt());
+        assertEquals(1L, actual.getVersion());
+        row.title = "stale tracked object";
+        assertThrows(OptimisticLockException.class, () -> repository.update(row));
+        assertEquals(0, repository.deleteWhere("id=? AND version=?", row.getId(), 0));
+        assertEquals(1, repository.deleteWhere("id=? AND version=?", row.getId(), 1));
+    }
+
+    @Test
+    void partialWriteRequiresExplicitFieldsAndPredicateAndDoesNotAllowManagedMetadata() throws Exception {
+        Note patch = new Note();
+        for (String field : List.of("id", "createdAt", "updatedAt", "version", "missing")) {
+            assertThrows(IllegalArgumentException.class, () -> repository.updateWhere(patch, List.of(field), "id=?", "one"));
+        }
+        assertThrows(IllegalArgumentException.class, () -> repository.updateWhere(patch, List.of(), "id=?", "one"));
+        assertThrows(IllegalArgumentException.class, () -> repository.updateWhere(patch, List.of("title", "title"), "id=?", "one"));
+        assertThrows(IllegalArgumentException.class, () -> repository.updateWhere(patch, List.of("title"), " "));
+        assertThrows(IllegalArgumentException.class, () -> repository.deleteWhere(""));
+        assertThrows(IllegalArgumentException.class, () -> repository.insertWhen(note("one"), null));
+        assertTrue(runner.statements.isEmpty());
+        Note loaded = repository.insert(note("one"));
+        assertThrows(IllegalArgumentException.class, () -> repository.updateWhere(loaded, List.of("title"), "id=?", "one"));
+        database.execute("UPDATE note SET version=? WHERE id=?", Long.MAX_VALUE, "one");
+        patch.title = "overflow";
+        assertEquals(0, repository.updateWhere(patch, List.of("title"), "id=?", "one"));
+        assertEquals("initial", database.scalar("SELECT title FROM note WHERE id=?", "one"));
+        patch.title = "x".repeat(101);
+        database.execute("UPDATE note SET version=0 WHERE id=?", "one");
+        assertThrows(SQLException.class, () -> repository.updateWhere(patch, List.of("title"), "id=?", "one"));
+        patch.title = "retry";
+        assertThrows(IllegalArgumentException.class, () -> repository.updateWhere(patch, List.of("title"), "id=?", "one"));
+    }
+
     private Note note(String id) {
         Note note = new Note();
         note.setId(id);

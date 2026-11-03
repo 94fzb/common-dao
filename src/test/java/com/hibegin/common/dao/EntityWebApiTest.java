@@ -108,6 +108,9 @@ class EntityWebApiTest {
                     result.put("meta", Map.of("changes", hasRows ? 0 : statement.getUpdateCount()));
                 }
                 String mode = responseMode.getAndSet("normal");
+                if (mode.equals("missingKey")) { result.put("results", List.of(Map.of())); }
+                if (mode.equals("multipleKeys")) { result.put("results", List.of(Map.of("entryId", "1"), Map.of("entryId", "2"))); }
+                if (mode.equals("missingResults")) { result.remove("results"); }
                 if (mode.equals("missingCount")) { result.remove("meta"); }
                 if (mode.equals("fractionalCount")) { result.put("changes", "1.5"); }
                 if (mode.equals("missingColumn")) {
@@ -319,6 +322,56 @@ class EntityWebApiTest {
         fresh.setId("new");
         legacy.insert(fresh);
         assertEquals(1234, legacy.findById("new").orElseThrow().getCreatedAt().getTime());
+    }
+
+    @Test
+    void conditionalWritesUseOneWebApiRequestAndPreserveFieldsAndVersion() throws Exception {
+        Entry denied = entry();
+        assertFalse(repository.insertWhen(denied, "?=?", 1, 2));
+        assertNull(denied.getId());
+        assertNull(denied.getVersion());
+        assertEquals(1, statements.size());
+        statements.clear();
+        assertTrue(repository.insertWhen(denied, "?=?", 1, 1));
+        assertEquals(1, statements.size());
+        Entry patch = new Entry();
+        statements.clear();
+        assertEquals(0, repository.updateWhere(patch, List.of("body"), "entryId=? AND title=?", denied.getId(), "stale"));
+        assertEquals(1, repository.updateWhere(patch, List.of("body"), "entryId=? AND title=?", denied.getId(), "initial"));
+        assertEquals(2, statements.size());
+        Entry actual = repository.findById(denied.getId()).orElseThrow();
+        assertNull(actual.body);
+        assertEquals("initial", actual.title);
+        assertEquals(1L, actual.getVersion());
+        statements.clear();
+        assertEquals(0, repository.deleteWhere("entryId=? AND version=?", denied.getId(), 0));
+        assertEquals(1, repository.deleteWhere("entryId=? AND version=?", denied.getId(), 1));
+        assertEquals(2, statements.size());
+    }
+
+    @Test
+    void conditionalWritesFailClosedOnUncertainReceipts() throws Exception {
+        for (String mode : List.of("missingKey", "multipleKeys", "missingResults", "invalid")) {
+            Entry fresh = entry();
+            responseMode.set(mode);
+            statements.clear();
+            assertThrows(SQLException.class, () -> repository.insertWhen(fresh, "?=?", 1, 1));
+            assertNull(fresh.getId());
+            assertNull(fresh.getVersion());
+            assertThrows(IllegalArgumentException.class, () -> repository.insertWhen(fresh, "?=?", 1, 1));
+            assertEquals(1, statements.size());
+        }
+        Entry stored = repository.insert(entry());
+        for (String mode : List.of("missingCount", "fractionalCount", "invalid")) {
+            Entry patch = new Entry();
+            patch.title = mode;
+            responseMode.set(mode);
+            statements.clear();
+            assertThrows(SQLException.class, () -> repository.updateWhere(patch, List.of("title"), "entryId=?", stored.getId()));
+            assertThrows(IllegalArgumentException.class, () -> repository.updateWhere(patch, List.of("title"), "entryId=?", stored.getId()));
+            assertEquals(1, statements.size());
+            assertEquals(mode, repository.findById(stored.getId()).orElseThrow().title);
+        }
     }
 
     private Entry entry() {

@@ -6,11 +6,15 @@ import org.apache.commons.dbutils.QueryRunner;
 import org.apache.commons.dbutils.handlers.MapListHandler;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -18,7 +22,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * Explicit, single-row persistence with snapshots and optimistic locking. No automatic DDL,
+ * Explicit persistence with snapshots, optimistic locking and conditional writes. No automatic DDL,
  * implicit flush, relation loading, retries, global data source or multi-operation transaction.
  *
  * @param <E> concrete mapped entity
@@ -95,6 +99,19 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
 
     /** Inserts a new entity, setting both times and version=0 only after a confirmed write. */
     public E insert(E entity) throws SQLException {
+        insert(entity, null, new Object[0]);
+        return entity;
+    }
+
+    /**
+     * Inserts only if a repository-owned SQL predicate matches in the same statement. False means
+     * no row was inserted; the entity remains new. Bind all external values. No preliminary read.
+     */
+    public boolean insertWhen(E entity, String predicate, Object... params) throws SQLException {
+        return insert(entity, predicate(predicate), params);
+    }
+
+    private boolean insert(E entity, String predicate, Object[] conditionParams) throws SQLException {
         requireActive();
         Object[] values = mapping.snapshot(entity);
         if (entity.persistenceState != null || entity.getVersion() != null
@@ -115,16 +132,23 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
             columns.add(column(i));
             params.add(values[i]);
         }
-        String sql = "INSERT INTO " + table() + " (" + String.join(", ", columns) + ") VALUES ("
-                + columns.stream().map(c -> "?").collect(Collectors.joining(", ")) + ")";
+        String placeholders = columns.stream().map(c -> "?").collect(Collectors.joining(", "));
+        String sql = "INSERT INTO " + table() + " (" + String.join(", ", columns) + ")"
+                + (predicate == null ? " VALUES (" + placeholders + ")" : " SELECT " + placeholders + " WHERE (" + predicate + ")");
+        Collections.addAll(params, conditionParams);
         try {
             if (mapping.generatedId) {
-                values[mapping.id] = insertGenerated(sql, params.toArray());
+                Object key = predicate == null ? insertGenerated(sql, params.toArray())
+                        : insertGeneratedWhen(sql, params.toArray());
+                if (key == null) return false;
+                values[mapping.id] = key;
             } else {
-                requireOne(write(sql, params.toArray()));
+                int changes = write(sql, params.toArray());
+                if (predicate != null && changes == 0) return false;
+                requireOne(changes);
             }
             accept(entity, values);
-            return entity;
+            return true;
         } catch (SQLException | RuntimeException e) {
             invalidate(entity, values);
             throw e;
@@ -190,6 +214,60 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
         } finally {
             entity.persistenceState.valid = false;
         }
+    }
+
+    /**
+     * Explicit partial/bulk write. The fresh, untracked template supplies only the named Java
+     * fields (including explicit nulls); it is not a persisted entity. The caller owns the atomic
+     * permission/CAS predicate. No implicit id/version check or SELECT is added. Each matched row
+     * advances updatedAt/version. Reload previously loaded entities before subsequent writes.
+     */
+    public int updateWhere(E values, List<String> fields, String predicate, Object... conditionParams) throws SQLException {
+        requireActive();
+        predicate = predicate(predicate);
+        Objects.requireNonNull(fields, "fields");
+        if (fields.isEmpty() || new HashSet<>(fields).size() != fields.size()) {
+            throw new IllegalArgumentException("Select distinct fields for a conditional update");
+        }
+        Object[] snapshot = mapping.snapshot(values);
+        if (values.persistenceState != null || values.getId() != null || values.getVersion() != null
+                || values.getCreatedAt() != null || values.getUpdatedAt() != null) {
+            throw new IllegalArgumentException("Conditional update requires a fresh template without persisted metadata");
+        }
+        List<String> assignments = new ArrayList<>();
+        List<Object> params = new ArrayList<>();
+        for (String field : fields) {
+            int index = mapping.index(field);
+            if (managed(index)) throw new IllegalArgumentException("Cannot assign managed field: " + field);
+            assignments.add(column(index) + "=?");
+            params.add(snapshot[index]);
+        }
+        assignments.add(column(mapping.updatedAt) + "=?");
+        params.add(mapping.properties.get(mapping.updatedAt).parameter(new Timestamp(clock.millis())));
+        assignments.add(column(mapping.version) + "=" + column(mapping.version) + "+1");
+        Collections.addAll(params, conditionParams);
+        try {
+            // SQLite otherwise promotes overflowing integers to REAL, losing the version contract.
+            return write("UPDATE " + table() + " SET " + String.join(", ", assignments)
+                    + " WHERE (" + predicate + ") AND " + column(mapping.version) + ">=0 AND "
+                    + column(mapping.version) + "<9223372036854775807", params.toArray());
+        } catch (SQLException | RuntimeException e) {
+            invalidate(values, snapshot);
+            throw e;
+        }
+    }
+
+    /** Explicit conditional/bulk delete. The caller supplies all permission and CAS predicates. */
+    public int deleteWhere(String predicate, Object... params) throws SQLException {
+        requireActive();
+        return write("DELETE FROM " + table() + " WHERE (" + predicate(predicate) + ")", params);
+    }
+
+    private String predicate(String predicate) {
+        if (predicate == null || predicate.trim().isEmpty()) {
+            throw new IllegalArgumentException("A repository-owned SQL predicate is required");
+        }
+        return predicate;
     }
 
     private String conditions(Map<String, ?> conditions, List<Object> params) {
@@ -297,6 +375,45 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
             } catch (SQLException | RuntimeException e) {
                 try { connection.rollback(); } catch (SQLException rollback) { e.addSuppressed(rollback); }
                 throw e;
+            }
+        }
+    }
+
+    private Object insertGeneratedWhen(String sql, Object[] params) throws SQLException {
+        Object[] bound = parameters(params);
+        EntityMapping.Property key = mapping.properties.get(mapping.id);
+        if (source.isWebApi()) {
+            List<Map<String, Object>> result = rows(sql + " RETURNING " + mapping.selectColumn(key, true), bound);
+            if (result.isEmpty()) return null;
+            if (result.size() != 1) throw new SQLException("Conditional insert returned multiple keys");
+            return generatedKey(result.get(0).get(key.column), key.type);
+        }
+        if (session != null) return insertGeneratedWhen(session.connection, sql, bound, key.type);
+        try (Connection connection = source.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                Object id = insertGeneratedWhen(connection, sql, bound, key.type);
+                connection.commit();
+                return id;
+            } catch (SQLException | RuntimeException e) {
+                try { connection.rollback(); } catch (SQLException rollback) { e.addSuppressed(rollback); }
+                throw e;
+            }
+        }
+    }
+
+    private Object insertGeneratedWhen(Connection connection, String sql, Object[] params, Class<?> keyType) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            runner.fillStatement(statement, params);
+            int changes = statement.executeUpdate();
+            // SQLite may retain a prior last_insert_rowid on a zero-row INSERT SELECT.
+            if (changes == 0) return null;
+            requireOne(changes);
+            try (ResultSet keys = statement.getGeneratedKeys()) {
+                if (!keys.next()) throw new SQLException("JDBC did not return a generated key");
+                Object key = generatedKey(keys.getObject(1), keyType);
+                if (keys.next()) throw new SQLException("JDBC returned multiple generated keys");
+                return key;
             }
         }
     }

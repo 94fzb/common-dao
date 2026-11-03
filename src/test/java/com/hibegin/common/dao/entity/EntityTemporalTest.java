@@ -67,6 +67,44 @@ class EntityTemporalTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void conditionalGeneratedKeysAndAllConditionalWritesRespectCallerRollback(boolean sqlite) throws Exception {
+        try (InMemoryDatabase db = open(sqlite)) {
+            db.execute("CREATE TABLE transaction_item (id "
+                    + (sqlite ? "integer primary key autoincrement" : "bigint auto_increment primary key")
+                    + ", createdAt datetime(3), updatedAt datetime(3), version bigint not null, title varchar(100))");
+            EntityRepository<TransactionItem, Long> outside = new EntityRepository<>(TransactionItem.class, db.dataSource());
+            TransactionItem committed = new TransactionItem();
+            committed.title = "committed";
+            assertTrue(outside.insertWhen(committed, "?=?", 1, 1));
+            assertNotNull(committed.getId());
+            try (var connection = db.dataSource().getConnection()) {
+                connection.setAutoCommit(false);
+                try (EntitySession session = new EntitySession(db.dataSource(), connection)) {
+                    EntityRepository<TransactionItem, Long> inside = session.repository(TransactionItem.class);
+                    TransactionItem accepted = new TransactionItem();
+                    assertTrue(inside.insertWhen(accepted, "?=?", 1, 1));
+                    assertNotNull(accepted.getId());
+                    TransactionItem denied = new TransactionItem();
+                    assertFalse(inside.insertWhen(denied, "?=?", 1, 2), "A previous SQLite generated key cannot make a denied insert succeed");
+                    assertNull(denied.getId());
+                    assertNull(denied.getCreatedAt());
+                    assertNull(denied.getVersion());
+                    TransactionItem patch = new TransactionItem();
+                    patch.title = "rolled back";
+                    assertEquals(1, inside.updateWhere(patch, java.util.List.of("title"), "id=?", committed.getId()));
+                    assertEquals(1, inside.deleteWhere("id=?", accepted.getId()));
+                    assertEquals("committed", outside.findById(committed.getId()).orElseThrow().title);
+                    connection.rollback();
+                }
+            }
+            assertEquals(1, outside.select("ORDER BY id").size());
+            assertEquals("committed", outside.findById(committed.getId()).orElseThrow().title);
+            assertEquals(0L, outside.findById(committed.getId()).orElseThrow().getVersion());
+        }
+    }
+
     @Entity(table = "transaction_item", generatedId = true)
     static class TransactionItem extends BaseEntity<Long> {
         String title;
