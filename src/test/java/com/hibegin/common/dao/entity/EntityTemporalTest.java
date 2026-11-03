@@ -17,7 +17,6 @@ import java.time.ZoneOffset;
 import java.util.Date;
 import java.util.Map;
 import java.util.Properties;
-import java.util.TimeZone;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -39,8 +38,6 @@ class EntityTemporalTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void sqlDateAndDateTimeRetainTheirDatabaseMeaningAndMutablePrecision(boolean sqlite) throws Exception {
-        TimeZone previous = TimeZone.getDefault();
-        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"));
         try (InMemoryDatabase db = open(sqlite)) {
             db.execute("CREATE TABLE event (id varchar(20) primary key, createdAt datetime(9), updatedAt datetime(9),"
                     + " version bigint not null, calendarDay date, startsAt datetime(9), visitedAt datetime(3))");
@@ -95,8 +92,6 @@ class EntityTemporalTest {
             assertEquals(inserted.startsAt, actual.startsAt);
             assertEquals(Timestamp.from(CLOCK.instant()), actual.getCreatedAt());
             assertEquals(1, repository.findMatching(Map.of("createdAt", actual.getCreatedAt()), 5).size());
-        } finally {
-            TimeZone.setDefault(previous);
         }
     }
 

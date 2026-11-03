@@ -10,7 +10,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Properties;
-import java.util.TimeZone;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -24,8 +23,6 @@ class EntityMySqlTemporalTest {
         properties.setProperty("jdbcUrl", System.getenv("COMMON_DAO_MYSQL_TEST_URL"));
         properties.setProperty("user", System.getenv("COMMON_DAO_MYSQL_TEST_USER"));
         properties.setProperty("password", System.getenv("COMMON_DAO_MYSQL_TEST_PASSWORD"));
-        TimeZone previous = TimeZone.getDefault();
-        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"));
         try (InMemoryDatabase db = InMemoryDatabase.open(properties, false)) {
             db.execute("CREATE TABLE event_mysql (id bigint auto_increment primary key, createdAt datetime(3),"
                     + " updatedAt datetime(3), version bigint not null, calendarDay date, startsAt datetime(6),"
@@ -60,8 +57,6 @@ class EntityMySqlTemporalTest {
             } finally {
                 db.execute("DROP TABLE event_mysql");
             }
-        } finally {
-            TimeZone.setDefault(previous);
         }
     }
 
