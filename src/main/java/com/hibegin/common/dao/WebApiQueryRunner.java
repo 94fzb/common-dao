@@ -1,6 +1,8 @@
 package com.hibegin.common.dao;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.ToNumberPolicy;
 import org.apache.commons.dbutils.QueryRunner;
 import org.apache.commons.dbutils.ResultSetHandler;
 import org.apache.commons.dbutils.handlers.MapHandler;
@@ -28,6 +30,7 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
     private final Properties dbProperties;
     private final HttpClient httpClient;
     private final Gson gson = new Gson();
+    private final Gson entityGson = new GsonBuilder().setObjectToNumberStrategy(ToNumberPolicy.BIG_DECIMAL).create();
     private final boolean dev;
     private final URI webApiUrl;
     private final AtomicLong connectSize = new AtomicLong(0);
@@ -220,6 +223,73 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
             }
         }
         throw new SQLException("Invalid changes value: " + changes);
+    }
+
+    /**
+     * Entity reads preserve integer/decimal precision and require a complete result envelope.
+     * Also used for SQLite/D1 INSERT ... RETURNING, so generated keys come from the same statement.
+     */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> queryEntityRows(String sql, Object... params) throws SQLException {
+        Object results = entityResponse(sql, params).get("results");
+        if (!(results instanceof List)) {
+            throw new SQLException("WebAPI entity response is missing results");
+        }
+        for (Object row : (List<?>) results) {
+            if (!(row instanceof Map)) { throw new SQLException("Invalid WebAPI entity row"); }
+        }
+        return (List<Map<String, Object>>) results;
+    }
+
+    /** Unlike the legacy API, absence of an affected-row count is not treated as zero. */
+    public int updateEntity(String sql, Object... params) throws SQLException {
+        Map<String, Object> response = entityResponse(sql, params);
+        Object changes = response.get("changes");
+        if (changes == null && response.get("meta") instanceof Map) {
+            changes = ((Map<?, ?>) response.get("meta")).get("changes");
+        }
+        try {
+            int count = new java.math.BigDecimal(Objects.requireNonNull(changes).toString()).intValueExact();
+            if (count < 0) { throw new IllegalArgumentException("Negative changes"); }
+            return count;
+        } catch (RuntimeException e) {
+            throw new SQLException("WebAPI entity response requires an exact affected-row count", e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> entityResponse(String sql, Object... params) throws SQLException {
+        long start = System.currentTimeMillis();
+        try {
+            Object[] exactParams = params == null ? null : params.clone();
+            if (exactParams != null) {
+                for (int i = 0; i < exactParams.length; i++) {
+                    Object value = exactParams[i];
+                    if (value instanceof Long || value instanceof java.math.BigInteger || value instanceof java.math.BigDecimal) {
+                        // SQLite numeric column affinity restores the type without a JavaScript double round trip.
+                        exactParams[i] = value.toString();
+                    }
+                }
+            }
+            HttpResponse<String> response = doRequest(sql, exactParams);
+            if (response.statusCode() != 200) {
+                throw new SQLException("WebAPI entity request failed: HTTP " + response.statusCode());
+            }
+            Map<String, Object> result = entityGson.fromJson(response.body(), Map.class);
+            if (result == null || !Boolean.TRUE.equals(result.get("success"))) {
+                throw new SQLException("WebAPI entity statement was not acknowledged as successful");
+            }
+            return result;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new SQLException("WebAPI entity request interrupted; reconcile before retrying", e);
+        } catch (IOException | RuntimeException e) {
+            throw new SQLException("WebAPI entity response unavailable or invalid; reconcile before retrying", e);
+        } finally {
+            if (dev) {
+                LOGGER.log(Level.INFO, DaoLogContext.format(sql + " took " + (System.currentTimeMillis() - start) + "ms"));
+            }
+        }
     }
 
     @Override
