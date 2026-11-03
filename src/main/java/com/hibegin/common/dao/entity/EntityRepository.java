@@ -7,6 +7,7 @@ import org.apache.commons.dbutils.handlers.MapListHandler;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,6 +29,7 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
     private final QueryRunner runner;
     private final EntityMapping mapping;
     private final Clock clock;
+    private final boolean textDates;
 
     public EntityRepository(Class<E> type, DataSourceWrapper source) {
         this(type, source, Clock.systemUTC());
@@ -38,6 +40,8 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
         this.runner = Objects.requireNonNull(source.getQueryRunner(), "queryRunner");
         this.mapping = EntityMapping.of(type);
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.textDates = source.isWebApi()
+                || source.getDataSourceProperties().getProperty("jdbcUrl", "").startsWith("jdbc:sqlite:");
         if (source.isWebApi()) {
             if (!(runner instanceof WebApiQueryRunner)) {
                 throw new IllegalArgumentException("WebAPI entities require WebApiQueryRunner");
@@ -81,9 +85,9 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
         if (mapping.generatedId ? entity.getId() != null : entity.getId() == null) {
             throw new IllegalArgumentException(mapping.generatedId ? "Generated ID must be null" : "Assigned ID is required");
         }
-        long now = clock.millis();
-        values[mapping.createdAt] = now;
-        values[mapping.updatedAt] = now;
+        Timestamp now = new Timestamp(clock.millis());
+        values[mapping.createdAt] = mapping.properties.get(mapping.createdAt).parameter(now);
+        values[mapping.updatedAt] = mapping.properties.get(mapping.updatedAt).parameter(now);
         values[mapping.version] = 0L;
         List<String> columns = new ArrayList<>();
         List<Object> params = new ArrayList<>();
@@ -130,7 +134,7 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
         }
         if (assignments.isEmpty()) { return false; }
         values[mapping.version] = Math.addExact((Long) old[mapping.version], 1L);
-        values[mapping.updatedAt] = clock.millis();
+        values[mapping.updatedAt] = mapping.properties.get(mapping.updatedAt).parameter(new Timestamp(clock.millis()));
         assignments.add(column(mapping.updatedAt) + "=?");
         params.add(values[mapping.updatedAt]);
         assignments.add(column(mapping.version) + "=?");
@@ -174,7 +178,7 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
         StringBuilder sql = new StringBuilder();
         for (Map.Entry<String, ?> entry : conditions.entrySet()) {
             int index = mapping.index(entry.getKey());
-            Object value = EntityMapping.databaseValue(EntityMapping.convert(entry.getValue(), mapping.properties.get(index).type));
+            Object value = mapping.properties.get(index).parameter(entry.getValue());
             sql.append(" AND ").append(column(index));
             if (value == null) {
                 sql.append(" IS NULL");
@@ -225,18 +229,21 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
     private String column(int index) { return EntityMapping.quote(mapping.properties.get(index).column); }
 
     private int write(String sql, Object[] params) throws SQLException {
+        params = parameters(params);
         return source.isWebApi() ? ((WebApiQueryRunner) runner).updateEntity(sql, params) : runner.update(sql, params);
     }
 
     private List<Map<String, Object>> rows(String sql, Object[] params) throws SQLException {
+        params = parameters(params);
         return source.isWebApi() ? ((WebApiQueryRunner) runner).queryEntityRows(sql, params)
                 : runner.query(sql, new MapListHandler(), params);
     }
 
     private Object insertGenerated(String sql, Object[] params) throws SQLException {
+        Object[] bound = parameters(params);
         EntityMapping.Property key = mapping.properties.get(mapping.id);
         if (source.isWebApi()) {
-            List<Map<String, Object>> result = rows(sql + " RETURNING " + mapping.selectColumn(key, true), params);
+            List<Map<String, Object>> result = rows(sql + " RETURNING " + mapping.selectColumn(key, true), bound);
             if (result.size() != 1) { throw new SQLException("Generated insert requires exactly one returned key"); }
             return generatedKey(result.get(0).get(key.column), key.type);
         }
@@ -248,7 +255,7 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
                     Object result = generatedKey(rs.getObject(1), key.type);
                     if (rs.next()) { throw new SQLException("JDBC returned multiple generated keys"); }
                     return result;
-                }, params);
+                }, bound);
                 connection.commit();
                 return id;
             } catch (SQLException | RuntimeException e) {
@@ -256,6 +263,13 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
                 throw e;
             }
         }
+    }
+
+    private Object[] parameters(Object[] values) {
+        if (!textDates) { return values; }
+        Object[] bound = values.clone();
+        for (int i = 0; i < bound.length; i++) { bound[i] = TemporalValues.textValue(bound[i]); }
+        return bound;
     }
 
     private Object generatedKey(Object value, Class<?> type) throws SQLException {

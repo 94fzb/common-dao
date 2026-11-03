@@ -12,4 +12,8 @@ public @interface Entity {
     String table() default "";
     String idColumn() default "id";
     boolean generatedId() default false;
+    String createdAtColumn() default "createdAt";
+    String updatedAtColumn() default "updatedAt";
+    TemporalStorage createdAtStorage() default TemporalStorage.NATIVE;
+    TemporalStorage updatedAtStorage() default TemporalStorage.NATIVE;
 }
