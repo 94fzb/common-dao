@@ -1,3 +1,7 @@
+### 1.2.4
+
+- Accept minute-precision date-time strings in `parseDate` and `formatDate`, defaulting omitted seconds to zero while preserving fractional-second and offset handling.
+
 ### 1.1.16
 
 - Allow `BasePageableDAO` to receive an explicit `DataSourceWrapper`, so pageable DAOs can use an application-owned database without depending on the global default data source. The no-argument constructor remains available.

@@ -16,8 +16,12 @@ import java.util.Objects;
 public class ResultValueConvertUtils {
 
     private static final DateTimeFormatter localDateTimeFormatter = new DateTimeFormatterBuilder()
-            .appendPattern("yyyy-MM-dd HH:mm:ss")
+            .appendPattern("yyyy-MM-dd HH:mm")
+            .optionalStart()
+            .appendPattern(":ss")
             .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
+            .optionalEnd()
+            .parseDefaulting(ChronoField.SECOND_OF_MINUTE, 0)
             .toFormatter(Locale.getDefault());
 
     private static final DateTimeFormatter formatter = new DateTimeFormatterBuilder()
