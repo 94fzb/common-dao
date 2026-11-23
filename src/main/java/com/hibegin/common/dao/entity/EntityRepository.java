@@ -64,6 +64,14 @@ public class EntityRepository<E extends BaseEntity<ID>, ID> {
         }
     }
 
+    /** Checks the mapped primary key without reading other columns or hydrating an entity. */
+    public boolean existsById(ID id) throws SQLException {
+        requireActive();
+        Object key = mapping.properties.get(mapping.id).parameter(Objects.requireNonNull(id, "id"));
+        String sql = "SELECT 1 FROM " + table() + " WHERE " + column(mapping.id) + "=?";
+        return !rows(sql, new Object[]{key}).isEmpty();
+    }
+
     public Optional<E> findById(ID id) throws SQLException {
         Objects.requireNonNull(id, "id");
         List<E> result = findMatching(Collections.singletonMap("id", id), 1);

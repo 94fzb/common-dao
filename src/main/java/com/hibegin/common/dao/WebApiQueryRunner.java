@@ -273,6 +273,12 @@ public class WebApiQueryRunner extends QueryRunner implements GetConnectPoolInfo
             }
             HttpResponse<String> response = doRequest(sql, exactParams);
             if (response.statusCode() != 200) {
+                if (dev && response.body().startsWith("Error: ")) {
+                    // The D1 worker returns its database error as a single text line.
+                    String diagnostic = response.body().lines().findFirst().orElse("");
+                    LOGGER.warning("WebAPI entity request failed: HTTP " + response.statusCode()
+                            + " " + diagnostic.substring(0, Math.min(diagnostic.length(), 1024)));
+                }
                 throw new SQLException("WebAPI entity request failed: HTTP " + response.statusCode());
             }
             Map<String, Object> result = entityGson.fromJson(response.body(), Map.class);
