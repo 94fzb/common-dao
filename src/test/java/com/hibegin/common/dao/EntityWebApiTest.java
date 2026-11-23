@@ -75,6 +75,12 @@ class EntityWebApiTest {
                 JsonObject request = JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)).getAsJsonObject();
                 String sql = request.get("sql").getAsString();
                 statements.add(sql);
+                if (responseMode.compareAndSet("workerError", "normal")) {
+                    byte[] body = "Error: D1_ERROR: no such column: pid".getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(500, body.length);
+                    exchange.getResponseBody().write(body);
+                    return;
+                }
                 Map<String, Object> result = new LinkedHashMap<>();
                 try (PreparedStatement statement = sqlite.prepareStatement(sql)) {
                     int index = 1;
@@ -213,6 +219,29 @@ class EntityWebApiTest {
         assertThrows(OptimisticLockException.class, () -> repository.update(stale));
         assertEquals(0L, stale.getVersion());
         assertEquals("winner", repository.findById(winner.getId()).orElseThrow().title);
+    }
+
+    @Test
+    void workerDatabaseErrorIsLoggedOnlyInDevMode() throws Exception {
+        var output = new java.io.ByteArrayOutputStream();
+        var handler = new java.util.logging.StreamHandler(output, new java.util.logging.SimpleFormatter());
+        var logger = java.util.logging.Logger.getLogger(WebApiQueryRunner.class.getName());
+        logger.addHandler(handler);
+        try {
+            for (boolean dev : List.of(false, true)) {
+                output.reset();
+                var runner = new WebApiQueryRunner(source.getDataSourceProperties(), dev, 1);
+                responseMode.set("workerError");
+                SQLException failure = assertThrows(SQLException.class, () -> runner.queryEntityRows("SELECT 1"));
+                handler.flush();
+                assertTrue(failure.getMessage().contains("HTTP 500"));
+                assertFalse(failure.getMessage().contains("pid"));
+                assertEquals(dev, output.toString(StandardCharsets.UTF_8).contains("no such column: pid"));
+            }
+        } finally {
+            logger.removeHandler(handler);
+            handler.close();
+        }
     }
 
     @Test
