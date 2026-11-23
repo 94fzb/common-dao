@@ -75,6 +75,8 @@ class EntityRepositoryTest {
             try (EntitySession session = new EntitySession(source, connection)) {
                 EntityRepository<Note, String> bound = session.repository(Note.class);
                 bound.insert(note("rollback"));
+                assertTrue(bound.existsById("rollback"));
+                assertFalse(repository.existsById("rollback"));
                 inside = bound.findById("rollback").orElseThrow();
                 inside.title = "still uncommitted";
                 session.<Note, String>repository(Note.class).update(inside);
@@ -103,6 +105,7 @@ class EntityRepositoryTest {
             assertEquals("temporary", bound.findById(log.getId()).orElseThrow().title);
             connection.rollback();
             session.close();
+            assertThrows(IllegalStateException.class, () -> bound.existsById(log.getId()));
             assertThrows(IllegalStateException.class, () -> bound.findById(log.getId()));
             assertThrows(IllegalStateException.class, () -> bound.insert(new Log()));
         }

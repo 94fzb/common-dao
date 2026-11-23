@@ -195,6 +195,11 @@ class EntityWebApiTest {
             statement.setString(3, "before");
             statement.executeUpdate();
         }
+        statements.clear();
+        assertTrue(repository.existsById(large));
+        assertFalse(repository.existsById(large - 1));
+        assertEquals(List.of("SELECT 1 FROM `entry` WHERE `entryId`=?",
+                "SELECT 1 FROM `entry` WHERE `entryId`=?"), statements);
         Entry entry = repository.findById(large).orElseThrow();
         assertEquals(large, entry.getId());
         assertEquals(large, entry.getVersion());
